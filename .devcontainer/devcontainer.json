@@ -1,0 +1,24 @@
+{
+  "name": "ESP-IDF QEMU",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "idf.espIdfPath": "/opt/esp/idf",
+        "idf.toolsPath": "/opt/esp",
+        "idf.openOcdPath": "/opt/esp/tools/openocd-esp32/v0.12.0-esp32-20250422/openocd-esp32/bin/openocd",
+        "idf.openOcdCfgPath": "/opt/esp/tools/openocd-esp32/v0.12.0-esp32-20250422/openocd-esp32/share/openocd/scripts",
+        "idf.adapterTargetName": "esp32c6"
+      },
+      "extensions": [
+        "espressif.esp-idf-extension",
+        "espressif.esp-idf-web",
+        "ms-vscode.cpptools",
+        "ms-python.python"
+      ]
+    }
+  },
+  "runArgs": ["--privileged"]
+}

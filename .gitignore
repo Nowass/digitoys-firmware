@@ -1,0 +1,16 @@
+# ESP-IDF project artifacts
+build/
+*.elf
+*.bin
+*.map
+*.pyc
+
+# IDF toolchain/dependencies
+.espressif/
+.idf/
+.vscode/.browse.VC.db
+.vscode/ipch/
+.vscode/c_cpp_properties.json
+
+# Python/VSCode virtual environments
+.venv/

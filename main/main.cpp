@@ -6,6 +6,7 @@
 #include "uart-hal.hpp"
 #include "motor-hal.hpp"
 #include "frame-parser.hpp"
+#include "streaming-parser.hpp"
 
 static const char *TAG = "HelloWorld";
 
@@ -27,13 +28,14 @@ extern "C" void app_main(void)
 
     lidar::UART_HAL uart_hal;
     lidar::MotorHAL motor;
-    lidar::FrameParser parser;
+    FrameParser parser;
+    StreamingParser stream_parser;
 
     lidar::LiDARConfig cfg = {
         .uartPort = UART_NUM_1,
         .txPin = GPIO_NUM_10,
         .rxPin = GPIO_NUM_11,
-        .dmaBufferLen = 512};
+        .dmaBufferLen = 2048};
 
     // Example GPIO pin — replace with your actual motor control pin
     gpio_num_t motor_pin = GPIO_NUM_4;
@@ -68,7 +70,7 @@ extern "C" void app_main(void)
 
     ESP_LOGI(TAG, "Motor started");
 
-    uint8_t rx_buf[256];
+    uint8_t rx_buf[470]; // 10 full frames
     size_t out_len = 0;
 
     // while (true) {
@@ -85,39 +87,36 @@ extern "C" void app_main(void)
 
     while (true)
     {
+        size_t out_len = 0;
         if (uart_hal.read(rx_buf, sizeof(rx_buf), out_len) == ESP_OK && out_len > 0)
         {
-            // Optional raw dump
-            // ESP_LOGI(TAG, "Received %d bytes:", out_len);
-            // for (size_t i = 0; i < out_len; ++i) {
-            //     printf("%02X ", rx_buf[i]);
-            // }
-            // printf("\n");
+            auto frames = stream_parser.parseStream(rx_buf, out_len);
 
-            // Parse
-            auto frames = parser.parse(rx_buf, out_len);
-            for (const auto &frame : frames)
+            if (!frames.empty())
             {
-                char rpm_str[16];
-                if (frame.rpm.has_value())
+                for (const auto &frame : frames)
                 {
-                    snprintf(rpm_str, sizeof(rpm_str), "%u", frame.rpm.value());
-                }
-                else
-                {
-                    snprintf(rpm_str, sizeof(rpm_str), "N/A");
-                }
+                    ESP_LOGI(TAG, "✅ Valid frame: RPM=%u, Points=%zu, Start=%.2f°, End=%.2f°, Timestamp=%u",
+                             frame.rpm,
+                             frame.points.size(),
+                             frame.start_angle,
+                             frame.end_angle,
+                             frame.timestamp);
 
-                ESP_LOGI(TAG, "✅ Frame with %zu points (RPM: %s)", frame.points.size(), rpm_str);
-
-                for (const auto &pt : frame.points)
-                {
-                    ESP_LOGI(TAG, "  ➤ Angle: %6.2f°, Dist: %4d mm, Conf: %3d",
-                             pt.angle_deg, pt.distance_mm, pt.confidence);
+                    for (size_t i = 0; i < frame.points.size(); ++i)
+                    {
+                        const auto &pt = frame.points[i];
+                        ESP_LOGI(TAG, "  • [%02zu] Angle: %6.2f°, Dist: %4u mm, Conf: %3u",
+                                 i, pt.angle, pt.distance, pt.confidence);
+                    }
                 }
             }
+            // else
+            // {
+            //     ESP_LOGW(TAG, "❌ No valid frame parsed from %u bytes", out_len);
+            // }
         }
 
-        vTaskDelay(pdMS_TO_TICKS(100)); // Adjust timing based on sensor rate
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }

@@ -1,40 +1,31 @@
 #pragma once
 
-#include <cstdint>
 #include <vector>
+#include <cstdint>
 #include <optional>
 
-namespace lidar {
-
-struct Point {
-    float angle_deg;
-    uint16_t distance_mm;
-    uint8_t confidence;
+struct PointData
+{
+    float angle;        // degrees
+    uint16_t distance;  // mm
+    uint8_t confidence; // 0–255
 };
 
-struct Frame {
-    std::vector<Point> points;
-    std::optional<uint16_t> rpm;
+struct Frame
+{
+    std::vector<PointData> points;
+    float start_angle;
+    float end_angle;
+    uint16_t rpm;
+    uint16_t timestamp;
 };
 
-class FrameParser {
+class FrameParser
+{
 public:
-    FrameParser();
-
-    // Feed raw data; returns any complete frames parsed
-    std::vector<Frame> parse(const uint8_t* data, size_t length);
+    std::optional<Frame> parseFrame(const uint8_t *data, size_t len);
+    static constexpr size_t FRAME_LEN = 47;
 
 private:
-    std::vector<uint8_t> buffer;
-
-    static constexpr uint8_t HEADER_1 = 0x54;
-    static constexpr uint8_t HEADER_2 = 0x2C;
-    static constexpr size_t FRAME_SIZE = 47;
-    static constexpr size_t POINT_COUNT = 12;
-
-    bool findNextFrame(size_t& index);
-    bool validateChecksum(const uint8_t* frame);
-    Frame parseFrame(const uint8_t* frame);
+    uint8_t calcCRC(const uint8_t *data, size_t len);
 };
-
-} // namespace lidar

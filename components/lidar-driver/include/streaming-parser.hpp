@@ -13,3 +13,5 @@ private:
     std::vector<uint8_t> buffer;
     FrameParser frameParser;
 };
+
+// streaming_parser.cpp

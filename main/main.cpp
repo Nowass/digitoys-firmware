@@ -25,6 +25,97 @@ void hello_task(void *pvParameter)
     }
 }
 
+__attribute__((optimize("O0"))) void analyzeObstacles(const std::vector<lidar::PointData> &frame,
+                                                      float crashThreshold, float obstacleThreshold, float noObstacleThreshold)
+{
+    float sumLeft = 0, sumFront = 0, sumRight = 0;
+    int countLeft = 0, countFront = 0, countRight = 0;
+    static bool printedOnce = false;
+
+    bool crashDetected = false;
+    float closestDist = std::numeric_limits<float>::max();
+
+    for (const auto &pt : frame)
+    {
+        float angle = pt.angle;
+        float dist = pt.distance / 1000.0f; // mm → m
+
+        if (pt.intensity < 100)
+            continue;
+
+        if (!(angle < 12.0f || angle > 347.0f))
+            continue;
+
+        if (dist <= crashThreshold)
+        {
+            crashDetected = true;
+        }
+
+        if (dist < closestDist)
+            closestDist = dist;
+
+        if (angle >= 360.0f)
+            angle -= 360.0f;
+        if (angle < 0.0f)
+            angle += 360.0f;
+
+        if ((angle >= 347.0f && angle <= 356.0f))
+        {
+            sumLeft += dist;
+            countLeft++;
+        }
+        else if ((angle > 356.0f && angle < 360.0f) || (angle >= 0.0f && angle <= 4.0f))
+        {
+            sumFront += dist;
+            countFront++;
+        }
+        else if ((angle > 4.0f && angle <= 12.0f))
+        {
+            sumRight += dist;
+            countRight++;
+        }
+    }
+
+    if (crashDetected)
+    {
+        ESP_LOGW("OBSTACLE", "⚠️ CRASH DETECTED! Obstacle too close!");
+        printedOnce = false;
+        return;
+    }
+
+    if (closestDist <= obstacleThreshold)
+    {
+        bool printed = false;
+
+        if (countLeft > 0 && (sumLeft / countLeft) <= obstacleThreshold)
+        {
+            ESP_LOGI("OBSTACLE", "Obstacle LEFT at %.2f m", sumLeft / countLeft);
+            printed = true;
+        }
+        if (countFront > 0 && (sumFront / countFront) <= obstacleThreshold)
+        {
+            ESP_LOGI("OBSTACLE", "Obstacle FRONT at %.2f m", sumFront / countFront);
+            printed = true;
+        }
+        if (countRight > 0 && (sumRight / countRight) <= obstacleThreshold)
+        {
+            ESP_LOGI("OBSTACLE", "Obstacle RIGHT at %.2f m", sumRight / countRight);
+            printed = true;
+        }
+
+        if (printed)
+            printedOnce = false;
+    }
+    else if (closestDist >= noObstacleThreshold)
+    {
+        if (!printedOnce)
+        {
+            ESP_LOGI("OBSTACLE", "✅ No obstacle in range");
+            printedOnce = true;
+        }
+    }
+}
+
 extern "C" void app_main(void)
 {
     static const char *TAG = "APP_MAIN";
@@ -39,18 +130,12 @@ extern "C" void app_main(void)
         .txPin = GPIO_NUM_10,
         .rxPin = GPIO_NUM_11,
         .dmaBufferLen = 2048,
-        .angleMinDeg = 0.0f,
-        .angleMaxDeg = 360.0f,
+        .angleMinDeg = 12.5f,
+        .angleMaxDeg = 347.5f,
         .motorPin = GPIO_NUM_4,
         .motorChannel = LEDC_CHANNEL_0,
         .motorFreqHz = 50000,
         .motorDutyPct = 50};
-
-    // Example GPIO pin — replace with your actual motor control pin
-    gpio_num_t motor_pin = GPIO_NUM_4;
-
-    // LEDC channel 0 is usually free — but check your board usage
-    ledc_channel_t motor_channel = LEDC_CHANNEL_0;
 
     esp_err_t err = uart_hal.init(cfg);
     if (err != ESP_OK)
@@ -92,12 +177,18 @@ extern "C" void app_main(void)
                 Points2D frame = parser.GetLaserScanData();
                 parser.ResetFrameReady();
 
+                // Example thresholds: crash @ 0.3m, warn @ 0.8m, ok above 1.2m
+                analyzeObstacles(frame, 0.3f, 0.8f, 1.2f);
+
                 // Use the frame (e.g., find nearest obstacle, draw scan, etc.)
-                for (const auto &pt : frame)
-                {
-                    ESP_LOGI(TAG, "Angle: %.1f°, Distance: %.2f m, Confidence: %d",
-                             pt.angle, pt.distance / 1000.0, pt.intensity);
-                }
+                // for (const auto &pt : frame)
+                // {
+                //     if (!(pt.angle < cfg.angleMinDeg || pt.angle > cfg.angleMaxDeg))
+                //         continue;
+
+                //     ESP_LOGI(TAG, "Angle: %.1f°, Distance: %.2f m, Confidence: %d",
+                //              pt.angle, pt.distance / 1000.0, pt.intensity);
+                // }
             }
         }
     }

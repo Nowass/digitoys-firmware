@@ -7,8 +7,13 @@
 #include "motor-hal.hpp"
 #include "frame-parser.hpp"
 #include "streaming-parser.hpp"
+#include "lidar-frame-parser.hpp"
+
+#define BUF_SIZE 512
 
 static const char *TAG = "HelloWorld";
+
+using namespace ldlidar;
 
 void hello_task(void *pvParameter)
 {
@@ -30,6 +35,8 @@ extern "C" void app_main(void)
     lidar::MotorHAL motor;
     FrameParser parser;
     StreamingParser stream_parser;
+    LiPkg liparser;
+    uint8_t data[BUF_SIZE];
 
     lidar::LiDARConfig cfg = {
         .uartPort = UART_NUM_1,
@@ -70,7 +77,7 @@ extern "C" void app_main(void)
 
     ESP_LOGI(TAG, "Motor started");
 
-    uint8_t rx_buf[470]; // 10 full frames
+    uint8_t rx_buf[940]; // 10 full frames
     size_t out_len = 0;
 
     // while (true) {
@@ -85,38 +92,61 @@ extern "C" void app_main(void)
     //     vTaskDelay(pdMS_TO_TICKS(100));  // Read every 100ms (adjust as needed)
     // }
 
+    // while (true)
+    // {
+    //     size_t out_len = 0;
+    //     if (uart_hal.read(rx_buf, sizeof(rx_buf), out_len) == ESP_OK && out_len > 0)
+    //     {
+    //         auto frames = stream_parser.parseStream(rx_buf, out_len);
+
+    //         if (!frames.empty())
+    //         {
+    //             for (const auto &frame : frames)
+    //             {
+    //                 ESP_LOGI(TAG, "✅ Valid frame: RPM=%u, Points=%zu, Start=%.2f°, End=%.2f°, Timestamp=%u",
+    //                          frame.rpm,
+    //                          frame.points.size(),
+    //                          frame.start_angle,
+    //                          frame.end_angle,
+    //                          frame.timestamp);
+
+    //                 for (size_t i = 0; i < frame.points.size(); ++i)
+    //                 {
+    //                     const auto &pt = frame.points[i];
+    //                     ESP_LOGI(TAG, "  • [%02zu] Angle: %6.2f°, Dist: %4u mm, Conf: %3u",
+    //                              i, pt.angle, pt.distance, pt.confidence);
+    //                 }
+    //             }
+    //         }
+    //         // else
+    //         // {
+    //         //     ESP_LOGW(TAG, "❌ No valid frame parsed from %u bytes", out_len);
+    //         // }
+    //     }
+
+    //     vTaskDelay(pdMS_TO_TICKS(10));
+    // }
+
     while (true)
     {
-        size_t out_len = 0;
-        if (uart_hal.read(rx_buf, sizeof(rx_buf), out_len) == ESP_OK && out_len > 0)
+        // Blocking read from UART (you may want to use ringbuffer for DMA)
+        int len = uart_read_bytes(UART_NUM_1, data, BUF_SIZE, pdMS_TO_TICKS(20));
+        if (len > 0)
         {
-            auto frames = stream_parser.parseStream(rx_buf, out_len);
+            liparser.CommReadCallback((const char *)data, len);
 
-            if (!frames.empty())
+            if (liparser.IsFrameReady())
             {
-                for (const auto &frame : frames)
-                {
-                    ESP_LOGI(TAG, "✅ Valid frame: RPM=%u, Points=%zu, Start=%.2f°, End=%.2f°, Timestamp=%u",
-                             frame.rpm,
-                             frame.points.size(),
-                             frame.start_angle,
-                             frame.end_angle,
-                             frame.timestamp);
+                Points2D frame = liparser.GetLaserScanData();
+                liparser.ResetFrameReady();
 
-                    for (size_t i = 0; i < frame.points.size(); ++i)
-                    {
-                        const auto &pt = frame.points[i];
-                        ESP_LOGI(TAG, "  • [%02zu] Angle: %6.2f°, Dist: %4u mm, Conf: %3u",
-                                 i, pt.angle, pt.distance, pt.confidence);
-                    }
+                // Use the frame (e.g., find nearest obstacle, draw scan, etc.)
+                for (const auto &pt : frame)
+                {
+                    printf("Angle: %.1f°, Distance: %.2f m, Confidence: %d\n",
+                           pt.angle, pt.distance / 1000.0, pt.intensity);
                 }
             }
-            // else
-            // {
-            //     ESP_LOGW(TAG, "❌ No valid frame parsed from %u bytes", out_len);
-            // }
         }
-
-        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }

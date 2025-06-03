@@ -1,23 +1,16 @@
-#ifndef _POINT_DATA_H_
-#define _POINT_DATA_H_
+#ifndef _POINT_DATA_HPP_
+#define _POINT_DATA_HPP_
 
 #include <stdint.h>
 
 #include <iostream>
 #include <vector>
 
-namespace ldlidar
+namespace lidar
 {
 
 #define ANGLE_TO_RADIAN(angle) ((angle) * 3141.59 / 180000)
 #define RADIAN_TO_ANGLED(angle) ((angle) * 180000 / 3141.59)
-
-  enum class LDType
-  {
-    LD_06,
-    LD_19,
-    NO_VERSION
-  };
 
   struct PointData
   {
@@ -48,6 +41,6 @@ namespace ldlidar
 
   typedef std::vector<PointData> Points2D;
 
-} // namespace ldlidar
+} // namespace lidar
 
-#endif // _POINT_DATA_H_
+#endif // _POINT_DATA_HPP_

@@ -1,17 +1,17 @@
-#ifndef __TOFBF_H_
-#define __TOFBF_H_
+#ifndef __NEAR_DISTANCE_FILTER_HPP_
+#define __NEAR_DISTANCE_FILTER_HPP_
 
 #include <math.h>
 #include <string.h>
 
 #include <algorithm>
 
-#include "pointdata.h"
+#include "pointdata.hpp"
 
-namespace ldlidar
+namespace lidar
 {
 
-  class Tofbf
+  class NearDistanceFilter
   {
   private:
     const int kIntensityLow = 15;     // Low intensity threshold
@@ -19,16 +19,16 @@ namespace ldlidar
     const int kScanFrequency = 4500;  // Default scan frequency, to change, read
                                       // according to radar protocol
     double curr_speed_;
-    Tofbf() = delete;
-    Tofbf(const Tofbf &) = delete;
-    Tofbf &operator=(const Tofbf &) = delete;
+    NearDistanceFilter() = delete;
+    NearDistanceFilter(const NearDistanceFilter &) = delete;
+    NearDistanceFilter &operator=(const NearDistanceFilter &) = delete;
 
   public:
-    Tofbf(int speed);
+    NearDistanceFilter(int speed);
     std::vector<PointData> NearFilter(const std::vector<PointData> &tmp) const;
-    ~Tofbf();
+    ~NearDistanceFilter();
   };
 
-} // namespace ldlidar
+} // namespace lidar
 
-#endif //__TOFBF_H_
+#endif //__NEAR_DISTANCE_FILTER_HPP_

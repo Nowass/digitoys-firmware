@@ -1,6 +1,6 @@
 #include "lidar-frame-parser.hpp"
 
-namespace ldlidar
+namespace lidar
 {
 
     static const uint8_t CrcTable[256] = {
@@ -38,31 +38,18 @@ namespace ldlidar
         return crc;
     }
 
-    LiPkg::LiPkg()
-        : product_type_(LDType::NO_VERSION),
-          sdk_pack_version_("v2.3.1"),
-          timestamp_(0),
+    FramePraser::FramePraser()
+        : timestamp_(0),
           speed_(0),
-          error_times_(0),
           is_frame_ready_(false)
     {
     }
 
-    LiPkg::~LiPkg()
+    FramePraser::~FramePraser()
     {
     }
 
-    void LiPkg::SetProductType(LDType type_number)
-    {
-        product_type_ = type_number;
-    }
-
-    std::string LiPkg::GetSdkVersionNumber(void)
-    {
-        return sdk_pack_version_;
-    }
-
-    bool LiPkg::AnalysisOne(uint8_t byte)
+    bool FramePraser::AnalysisOne(uint8_t byte)
     {
         static enum {
             HEADER,
@@ -109,7 +96,6 @@ namespace ldlidar
                 }
                 else
                 {
-                    error_times_++;
                     return false;
                 }
             }
@@ -121,7 +107,7 @@ namespace ldlidar
         return false;
     }
 
-    bool LiPkg::Parse(const uint8_t *data, long len)
+    bool FramePraser::Parse(const uint8_t *data, long len)
     {
         for (int i = 0; i < len; i++)
         {
@@ -129,11 +115,7 @@ namespace ldlidar
             {
                 // parse a package is success
                 double diff = (pkg_.end_angle / 100 - pkg_.start_angle / 100 + 360) % 360;
-                if (diff > (double)pkg_.speed * POINT_PER_PACK / kPointFrequence * 3 / 2)
-                {
-                    error_times_++;
-                }
-                else
+                if (diff < (double)pkg_.speed * POINT_PER_PACK / kPointFrequence * 3 / 2)
                 {
                     speed_ = pkg_.speed;         // Degrees per second
                     timestamp_ = pkg_.timestamp; // In milliseconds
@@ -159,7 +141,7 @@ namespace ldlidar
         return true;
     }
 
-    bool LiPkg::AssemblePacket()
+    bool FramePraser::AssemblePacket()
     {
         float last_angle = 0;
         Points2D tmp, data;
@@ -177,7 +159,7 @@ namespace ldlidar
                     return false;
                 }
                 data.insert(data.begin(), frame_tmp_.begin(), frame_tmp_.begin() + count);
-                Tofbf toffilter(speed_);
+                NearDistanceFilter toffilter(speed_);
                 tmp = toffilter.NearFilter(data);
                 std::sort(tmp.begin(), tmp.end(), [](PointData a, PointData b)
                           { return a.angle < b.angle; });
@@ -196,56 +178,51 @@ namespace ldlidar
         return false;
     }
 
-    double LiPkg::GetSpeed(void)
+    double FramePraser::GetSpeed(void)
     {
         return (speed_ / 360.0); // unit is hz
     }
 
-    uint16_t LiPkg::GetSpeedOrigin(void)
+    uint16_t FramePraser::GetSpeedOrigin(void)
     {
         return speed_;
     }
 
-    uint16_t LiPkg::GetTimestamp(void)
+    uint16_t FramePraser::GetTimestamp(void)
     {
         return timestamp_;
     }
 
-    bool LiPkg::IsFrameReady(void)
+    bool FramePraser::IsFrameReady(void)
     {
         return is_frame_ready_;
     }
 
-    void LiPkg::ResetFrameReady(void)
+    void FramePraser::ResetFrameReady(void)
     {
         std::lock_guard<std::mutex> lg(mutex_lock1_);
         is_frame_ready_ = false;
     }
 
-    void LiPkg::SetFrameReady(void)
+    void FramePraser::SetFrameReady(void)
     {
         std::lock_guard<std::mutex> lg(mutex_lock1_);
         is_frame_ready_ = true;
     }
 
-    Points2D LiPkg::GetLaserScanData(void)
+    Points2D FramePraser::GetLaserScanData(void)
     {
         std::lock_guard<std::mutex> lg(mutex_lock2_);
         return laser_scan_data_;
     }
 
-    void LiPkg::SetLaserScanData(Points2D &src)
+    void FramePraser::SetLaserScanData(Points2D &src)
     {
         std::lock_guard<std::mutex> lg(mutex_lock2_);
         laser_scan_data_ = src;
     }
 
-    long LiPkg::GetErrorTimes(void)
-    {
-        return error_times_;
-    }
-
-    void LiPkg::CommReadCallback(const char *byte, size_t len)
+    void FramePraser::CommReadCallback(const char *byte, size_t len)
     {
         if (this->Parse((uint8_t *)byte, len))
         {
@@ -253,4 +230,4 @@ namespace ldlidar
         }
     }
 
-} // namespace ldlidar
+} // namespace lidar

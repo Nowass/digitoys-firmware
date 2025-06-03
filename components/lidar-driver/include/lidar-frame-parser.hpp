@@ -1,21 +1,26 @@
-#ifndef __LIPKG_H
-#define __LIPKG_H
+#ifndef __LIPKG_HPP
+#define __LIPKG_HPP
 
 #include <chrono>
 
-#include "pointdata.h"
-#include "tofbf.h"
+#include "pointdata.hpp"
+#include "near-distance-filter.hpp"
 #include <mutex>
 
-namespace ldlidar
+namespace lidar
 {
 
-    enum
-    {
-        PKG_HEADER = 0x54,
-        PKG_VER_LEN = 0x2C,
-        POINT_PER_PACK = 12,
-    };
+    // enum
+    // {
+    //     PKG_HEADER = 0x54,
+    //     PKG_VER_LEN = 0x2C,
+    //     // POINT_PER_PACK = 12,
+    // };
+
+    constexpr int PKG_HEADER = 0x54;
+    constexpr int PKG_VER_LEN = 0x2C;
+    constexpr int POINT_PER_PACK = 12;
+    constexpr int kPointFrequence = 1000;
 
     typedef struct __attribute__((packed))
     {
@@ -35,17 +40,13 @@ namespace ldlidar
         uint8_t crc8;
     } LiDARFrameTypeDef;
 
-    class LiPkg
+    class FramePraser
     {
     public:
         const int kPointFrequence = 4500;
 
-        LiPkg();
-        ~LiPkg();
-        // set product type (belong to enum class LDType)
-        void SetProductType(LDType type_number);
-        // get sdk version number
-        std::string GetSdkVersionNumber(void);
+        FramePraser();
+        ~FramePraser();
         // get Lidar spin speed (Hz)
         double GetSpeed(void);
         // get lidar spind speed (degree per second) origin
@@ -57,17 +58,12 @@ namespace ldlidar
         // Lidar data frame readiness flag reset
         void ResetFrameReady(void);
         void SetFrameReady(void);
-        // the number of errors in parser process of lidar data frame
-        long GetErrorTimes(void);
         void CommReadCallback(const char *byte, size_t len);
         Points2D GetLaserScanData(void);
 
     private:
-        LDType product_type_;
-        std::string sdk_pack_version_;
         uint16_t timestamp_;
         double speed_;
-        long error_times_;
         bool is_frame_ready_;
         LiDARFrameTypeDef pkg_;
         Points2D frame_tmp_;
@@ -85,4 +81,4 @@ namespace ldlidar
 
 } // namespace ldlidar
 
-#endif //__LIPKG_H
+#endif //__LIPKG_HPP

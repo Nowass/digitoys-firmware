@@ -5,15 +5,13 @@
 #include "LiDARConfig.hpp"
 #include "uart-hal.hpp"
 #include "motor-hal.hpp"
-#include "frame-parser.hpp"
-#include "streaming-parser.hpp"
 #include "lidar-frame-parser.hpp"
 
 #define BUF_SIZE 512
 
 static const char *TAG = "HelloWorld";
 
-using namespace ldlidar;
+using namespace lidar;
 
 void hello_task(void *pvParameter)
 {
@@ -31,18 +29,22 @@ extern "C" void app_main(void)
 {
     static const char *TAG = "APP_MAIN";
 
-    lidar::UART_HAL uart_hal;
-    lidar::MotorHAL motor;
-    FrameParser parser;
-    StreamingParser stream_parser;
-    LiPkg liparser;
+    UART_HAL uart_hal;
+    MotorHAL motor;
+    FramePraser parser;
     uint8_t data[BUF_SIZE];
 
-    lidar::LiDARConfig cfg = {
+    LiDARConfig cfg = {
         .uartPort = UART_NUM_1,
         .txPin = GPIO_NUM_10,
         .rxPin = GPIO_NUM_11,
-        .dmaBufferLen = 2048};
+        .dmaBufferLen = 2048,
+        .angleMinDeg = 0.0f,
+        .angleMaxDeg = 360.0f,
+        .motorPin = GPIO_NUM_4,
+        .motorChannel = LEDC_CHANNEL_0,
+        .motorFreqHz = 50000,
+        .motorDutyPct = 50};
 
     // Example GPIO pin — replace with your actual motor control pin
     gpio_num_t motor_pin = GPIO_NUM_4;
@@ -77,74 +79,24 @@ extern "C" void app_main(void)
 
     ESP_LOGI(TAG, "Motor started");
 
-    uint8_t rx_buf[940]; // 10 full frames
-    size_t out_len = 0;
-
-    // while (true) {
-    //     if (uart_hal.read(rx_buf, sizeof(rx_buf), out_len) == ESP_OK && out_len > 0) {
-    //         ESP_LOGI(TAG, "Received %d bytes:", out_len);
-    //         for (size_t i = 0; i < out_len; ++i) {
-    //             printf("%02X ", rx_buf[i]);
-    //         }
-    //         printf("\n");
-    //     }
-
-    //     vTaskDelay(pdMS_TO_TICKS(100));  // Read every 100ms (adjust as needed)
-    // }
-
-    // while (true)
-    // {
-    //     size_t out_len = 0;
-    //     if (uart_hal.read(rx_buf, sizeof(rx_buf), out_len) == ESP_OK && out_len > 0)
-    //     {
-    //         auto frames = stream_parser.parseStream(rx_buf, out_len);
-
-    //         if (!frames.empty())
-    //         {
-    //             for (const auto &frame : frames)
-    //             {
-    //                 ESP_LOGI(TAG, "✅ Valid frame: RPM=%u, Points=%zu, Start=%.2f°, End=%.2f°, Timestamp=%u",
-    //                          frame.rpm,
-    //                          frame.points.size(),
-    //                          frame.start_angle,
-    //                          frame.end_angle,
-    //                          frame.timestamp);
-
-    //                 for (size_t i = 0; i < frame.points.size(); ++i)
-    //                 {
-    //                     const auto &pt = frame.points[i];
-    //                     ESP_LOGI(TAG, "  • [%02zu] Angle: %6.2f°, Dist: %4u mm, Conf: %3u",
-    //                              i, pt.angle, pt.distance, pt.confidence);
-    //                 }
-    //             }
-    //         }
-    //         // else
-    //         // {
-    //         //     ESP_LOGW(TAG, "❌ No valid frame parsed from %u bytes", out_len);
-    //         // }
-    //     }
-
-    //     vTaskDelay(pdMS_TO_TICKS(10));
-    // }
-
     while (true)
     {
         // Blocking read from UART (you may want to use ringbuffer for DMA)
         int len = uart_read_bytes(UART_NUM_1, data, BUF_SIZE, pdMS_TO_TICKS(20));
         if (len > 0)
         {
-            liparser.CommReadCallback((const char *)data, len);
+            parser.CommReadCallback((const char *)data, len);
 
-            if (liparser.IsFrameReady())
+            if (parser.IsFrameReady())
             {
-                Points2D frame = liparser.GetLaserScanData();
-                liparser.ResetFrameReady();
+                Points2D frame = parser.GetLaserScanData();
+                parser.ResetFrameReady();
 
                 // Use the frame (e.g., find nearest obstacle, draw scan, etc.)
                 for (const auto &pt : frame)
                 {
-                    printf("Angle: %.1f°, Distance: %.2f m, Confidence: %d\n",
-                           pt.angle, pt.distance / 1000.0, pt.intensity);
+                    ESP_LOGI(TAG, "Angle: %.1f°, Distance: %.2f m, Confidence: %d",
+                             pt.angle, pt.distance / 1000.0, pt.intensity);
                 }
             }
         }

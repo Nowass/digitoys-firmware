@@ -13,14 +13,13 @@ namespace lidar
     {
         _uartPort = cfg.uartPort;
 
-        uart_config_t uart_cfg = {
-            .baud_rate = 230400,
-            .data_bits = UART_DATA_8_BITS,
-            .parity = UART_PARITY_DISABLE,
-            .stop_bits = UART_STOP_BITS_1,
-            .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-            // .source_clk = UART_SCLK_APB,
-        };
+        uart_config_t uart_cfg = {}; // Zero-initialize everything (including anonymous fields)
+
+        uart_cfg.baud_rate = 230400;
+        uart_cfg.data_bits = UART_DATA_8_BITS;
+        uart_cfg.parity = UART_PARITY_DISABLE;
+        uart_cfg.stop_bits = UART_STOP_BITS_1;
+        uart_cfg.flow_ctrl = UART_HW_FLOWCTRL_DISABLE;
 
         esp_err_t err = uart_param_config(cfg.uartPort, &uart_cfg);
         if (err != ESP_OK)

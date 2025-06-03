@@ -1,19 +1,19 @@
-﻿#include "tofbf.h"
+﻿#include "near-distance-filter.hpp"
 
-namespace ldlidar
+namespace lidar
 {
 
   /**
-   * @brief Construct a new Tofbf:: Tofbf object
+   * @brief Construct a new NearDistanceFilter:: NearDistanceFilter object
    * @param [in]
    *  @param speed  current lidar speed
    */
-  Tofbf::Tofbf(int speed)
+  NearDistanceFilter::NearDistanceFilter(int speed)
   {
     curr_speed_ = speed;
   }
 
-  Tofbf::~Tofbf()
+  NearDistanceFilter::~NearDistanceFilter()
   {
   }
 
@@ -23,7 +23,7 @@ namespace ldlidar
    * 	@param tmp lidar point data
    * @return std::vector<PointData>
    */
-  std::vector<PointData> Tofbf::NearFilter(
+  std::vector<PointData> NearDistanceFilter::NearFilter(
       const std::vector<PointData> &tmp) const
   {
     std::vector<PointData> normal, pending, item;
@@ -150,4 +150,4 @@ namespace ldlidar
     return normal;
   }
 
-} // namespace ldlidar
+} // namespace lidar

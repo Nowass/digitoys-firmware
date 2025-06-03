@@ -5,7 +5,7 @@
 #include "LiDARConfig.hpp"
 #include "uart-hal.hpp"
 #include "motor-hal.hpp"
-#include "lidar-frame-parser.hpp"
+#include "frame-parser.hpp"
 
 #define BUF_SIZE 512
 

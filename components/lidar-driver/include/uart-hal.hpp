@@ -1,31 +1,26 @@
 #pragma once
-#include "esp_err.h"
+
 #include "LiDARConfig.hpp"
+#include <driver/uart.h>
+#include <esp_err.h>
+#include <span>
+#include <cstddef> // std::size_t, std::byte
 
-namespace lidar {
+namespace lidar
+{
 
-class UART_HAL {
-public:
-  /**
-   * @brief Initialize UART in DMA mode using parameters from cfg.
-   */
-  esp_err_t init(const LiDARConfig &cfg);
+  class [[nodiscard]] UART_HAL final
+  {
+  public:
+    UART_HAL() = default;
+    ~UART_HAL();
 
-  /**
-   * @brief Send raw bytes over UART.
-   */
-  esp_err_t write(const uint8_t *data, size_t len);
+    esp_err_t init(const LiDARConfig &cfg);
+    esp_err_t read(std::span<std::byte> buffer, std::size_t &bytesRead, uint32_t timeoutMs = 20) const;
+    void deinit();
 
-  /**
-   * @brief Read up to len bytes from the DMA buffer.
-   * @param buf      Destination buffer
-   * @param len      Maximum number of bytes to read
-   * @param out_len  Actual number of bytes read
-   */
-  esp_err_t read(uint8_t *buf, size_t len, size_t &out_len);
-
-private:
-  uart_port_t _uartPort;   // << store the port here
-};
+  private:
+    uart_port_t uartPort_ = UART_NUM_1;
+  };
 
 } // namespace lidar

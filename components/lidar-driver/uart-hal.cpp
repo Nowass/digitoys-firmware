@@ -1,71 +1,67 @@
 #include "uart-hal.hpp"
-#include "esp_log.h"
-#include "sdkconfig.h"
-#include "driver/uart.h"
-#include "driver/gpio.h"
-
-static constexpr const char *TAG = "UART_HAL";
+#include <esp_log.h>
+#include <driver/gpio.h>
 
 namespace lidar
 {
 
+    namespace
+    {
+        constexpr const char *TAG = "UART_HAL";
+        constexpr std::size_t UART_BUF_SIZE = 1024;
+    }
+
+    UART_HAL::~UART_HAL()
+    {
+        deinit();
+    }
+
     esp_err_t UART_HAL::init(const LiDARConfig &cfg)
     {
-        _uartPort = cfg.uartPort;
+        uartPort_ = cfg.uartPort;
 
-        uart_config_t uart_cfg = {}; // Zero-initialize everything (including anonymous fields)
+        const uart_config_t uartCfg = {
+            .baud_rate = cfg.baudRate,
+            .data_bits = UART_DATA_8_BITS,
+            .parity = UART_PARITY_DISABLE,
+            .stop_bits = UART_STOP_BITS_1,
+            .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+            .rx_flow_ctrl_thresh = 0,
+#if ESP_IDF_VERSION_MAJOR >= 4 && defined(UART_SCLK_DEFAULT)
+            .source_clk = UART_SCLK_DEFAULT,
+#endif
+        };
 
-        uart_cfg.baud_rate = 230400;
-        uart_cfg.data_bits = UART_DATA_8_BITS;
-        uart_cfg.parity = UART_PARITY_DISABLE;
-        uart_cfg.stop_bits = UART_STOP_BITS_1;
-        uart_cfg.flow_ctrl = UART_HW_FLOWCTRL_DISABLE;
+        ESP_LOGI(TAG, "Initializing UART port %d with baud rate %d", uartPort_, cfg.baudRate);
 
-        esp_err_t err = uart_param_config(cfg.uartPort, &uart_cfg);
+        esp_err_t err = uart_param_config(uartPort_, &uartCfg);
         if (err != ESP_OK)
-        {
-            ESP_LOGE(TAG, "uart_param_config failed");
             return err;
-        }
 
-        err = uart_set_pin(cfg.uartPort, cfg.txPin, cfg.rxPin, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+        err = uart_set_pin(uartPort_, cfg.txPin, cfg.rxPin, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
         if (err != ESP_OK)
-        {
-            ESP_LOGE(TAG, "uart_set_pin failed");
             return err;
-        }
 
-        // install driver with RX DMA buffer
-        err = uart_driver_install(cfg.uartPort,
-                                  cfg.dmaBufferLen * 2, // RX buffer size
-                                  0,                    // TX buffer size
-                                  0,                    // event queue size
-                                  nullptr,
-                                  0);
-        if (err != ESP_OK)
-        {
-            ESP_LOGE(TAG, "uart_driver_install failed");
-        }
+        err = uart_driver_install(uartPort_, UART_BUF_SIZE, 0, 0, nullptr, 0);
         return err;
     }
 
-    esp_err_t UART_HAL::write(const uint8_t *data, size_t len)
+    esp_err_t UART_HAL::read(std::span<std::byte> buffer, std::size_t &bytesRead, uint32_t timeoutMs) const
     {
-        int written = uart_write_bytes(_uartPort,
-                                       (const char *)data, len);
-        return written == (int)len ? ESP_OK : ESP_FAIL;
-    }
-
-    esp_err_t UART_HAL::read(uint8_t *buf, size_t len, size_t &out_len)
-    {
-        int r = uart_read_bytes(_uartPort, buf, len, pdMS_TO_TICKS(20));
-        if (r <= 0)
+        int len = uart_read_bytes(uartPort_, reinterpret_cast<uint8_t *>(buffer.data()), buffer.size(), pdMS_TO_TICKS(timeoutMs));
+        if (len < 0)
         {
-            out_len = 0;
+            bytesRead = 0;
             return ESP_FAIL;
         }
-        out_len = static_cast<size_t>(r);
+
+        bytesRead = static_cast<std::size_t>(len);
         return ESP_OK;
+    }
+
+    void UART_HAL::deinit()
+    {
+        uart_driver_delete(uartPort_);
     }
 
 } // namespace lidar

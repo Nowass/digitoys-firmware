@@ -1,34 +1,27 @@
-#ifndef __NEAR_DISTANCE_FILTER_HPP_
-#define __NEAR_DISTANCE_FILTER_HPP_
-
+#pragma once
 #include <math.h>
 #include <string.h>
 
 #include <algorithm>
-
 #include "pointdata.hpp"
+#include <vector>
 
 namespace lidar
 {
 
-  class NearDistanceFilter
+  class [[nodiscard]] NearDistanceFilter final
   {
-  private:
-    const int kIntensityLow = 15;     // Low intensity threshold
-    const int kIntensitySingle = 220; // Discrete points require higher intensity
-    const int kScanFrequency = 4500;  // Default scan frequency, to change, read
-                                      // according to radar protocol
-    double curr_speed_;
-    NearDistanceFilter() = delete;
-    NearDistanceFilter(const NearDistanceFilter &) = delete;
-    NearDistanceFilter &operator=(const NearDistanceFilter &) = delete;
-
   public:
-    NearDistanceFilter(int speed);
-    std::vector<PointData> NearFilter(const std::vector<PointData> &tmp) const;
-    ~NearDistanceFilter();
+    explicit NearDistanceFilter(int speed);
+    ~NearDistanceFilter() = default;
+
+    [[nodiscard]] std::vector<PointData> NearFilter(const std::vector<PointData> &input) const;
+
+  private:
+    int curr_speed_;
+    static constexpr float kScanFrequency = 10.0f;
+    static constexpr int kIntensitySingle = 180;
+    static constexpr int kIntensityLow = 200;
   };
 
 } // namespace lidar
-
-#endif //__NEAR_DISTANCE_FILTER_HPP_

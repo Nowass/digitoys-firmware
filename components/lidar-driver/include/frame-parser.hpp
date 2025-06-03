@@ -1,6 +1,3 @@
-#ifndef __LIPKG_HPP
-#define __LIPKG_HPP
-
 #include <chrono>
 
 #include "pointdata.hpp"
@@ -9,13 +6,6 @@
 
 namespace lidar
 {
-
-    // enum
-    // {
-    //     PKG_HEADER = 0x54,
-    //     PKG_VER_LEN = 0x2C,
-    //     // POINT_PER_PACK = 12,
-    // };
 
     constexpr int PKG_HEADER = 0x54;
     constexpr int PKG_VER_LEN = 0x2C;
@@ -79,6 +69,4 @@ namespace lidar
         void SetLaserScanData(Points2D &src);
     };
 
-} // namespace ldlidar
-
-#endif //__LIPKG_HPP
+} // namespace lidar

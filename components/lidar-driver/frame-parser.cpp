@@ -1,4 +1,4 @@
-#include "lidar-frame-parser.hpp"
+#include "frame-parser.hpp"
 
 namespace lidar
 {

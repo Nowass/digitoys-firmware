@@ -1,25 +1,25 @@
 #pragma once
-#include "driver/ledc.h"
-#include "driver/gpio.h"
-#include "esp_err.h"
 
+#include "LiDARConfig.hpp"
+#include <esp_err.h>
 
-namespace lidar {
+namespace lidar
+{
 
-class MotorHAL {
-public:
-  esp_err_t init(ledc_channel_t channel,
-                 gpio_num_t pin,
-                 uint32_t freq_hz,
-                 uint8_t duty_pct);
+  class [[nodiscard]] Motor_HAL final
+  {
+  public:
+    Motor_HAL() = default;
+    ~Motor_HAL();
 
-  esp_err_t start();
-  esp_err_t stop();
-  esp_err_t setSpeed(uint8_t duty_pct);
+    esp_err_t init(const LiDARConfig &cfg);
+    esp_err_t start();
+    esp_err_t stop();
+    void deinit();
 
-private:
-  ledc_channel_t _channel;
-  gpio_num_t     _pin;
-};
+  private:
+    int gpioPin_ = -1;
+    bool isInitialized_ = false;
+  };
 
 } // namespace lidar

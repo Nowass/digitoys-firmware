@@ -30,7 +30,7 @@ extern "C" void app_main(void)
     static const char *TAG = "APP_MAIN";
 
     UART_HAL uart_hal;
-    MotorHAL motor;
+    Motor_HAL motor;
     FramePraser parser;
     uint8_t data[BUF_SIZE];
 
@@ -62,7 +62,7 @@ extern "C" void app_main(void)
     ESP_LOGI(TAG, "UART_HAL initialized successfully");
 
     // Initialize motor with 50 kHz PWM and 50% duty
-    err = motor.init(motor_channel, motor_pin, 50000 /*Hz*/, 50 /*%*/);
+    err = motor.init(cfg);
     if (err != ESP_OK)
     {
         ESP_LOGE(TAG, "Motor init failed");

@@ -18,7 +18,10 @@ namespace lidar
     void deinit();
 
   private:
-    int gpioPin_ = -1;
+    gpio_num_t gpioPin_ = GPIO_NUM_NC;
+    ledc_channel_t pwmChannel_ = LEDC_CHANNEL_0;
+    int pwmResolutionBits_ = 10;
+    int pwmDuty_ = 0;
     bool isInitialized_ = false;
   };
 

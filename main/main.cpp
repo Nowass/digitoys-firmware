@@ -1,5 +1,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/queue.h"
 #include "esp_log.h"
 #include "esp_system.h"
 #include "LiDARConfig.hpp"
@@ -12,6 +13,8 @@
 static const char *TAG = "HelloWorld";
 
 using namespace lidar;
+
+static QueueHandle_t obstacleQueue = nullptr;
 
 void hello_task(void *pvParameter)
 {
@@ -116,6 +119,23 @@ __attribute__((optimize("O0"))) void analyzeObstacles(const std::vector<lidar::P
     }
 }
 
+void obstacle_task(void *pvParameter)
+{
+    const float crashThreshold = 0.3f;
+    const float obstacleThreshold = 0.8f;
+    const float noObstacleThreshold = 1.2f;
+
+    while (true)
+    {
+        Points2D *framePtr = nullptr;
+        if (xQueueReceive(obstacleQueue, &framePtr, portMAX_DELAY) == pdTRUE && framePtr != nullptr)
+        {
+            analyzeObstacles(*framePtr, crashThreshold, obstacleThreshold, noObstacleThreshold);
+            delete framePtr;
+        }
+    }
+}
+
 extern "C" void app_main(void)
 {
     static const char *TAG = "APP_MAIN";
@@ -164,6 +184,19 @@ extern "C" void app_main(void)
 
     ESP_LOGI(TAG, "Motor started");
 
+    obstacleQueue = xQueueCreate(5, sizeof(Points2D *));
+    if (obstacleQueue == nullptr)
+    {
+        ESP_LOGE(TAG, "Failed to create obstacle queue");
+        return;
+    }
+
+    if (xTaskCreate(obstacle_task, "obstacle_task", 4096, NULL, 5, NULL) != pdPASS)
+    {
+        ESP_LOGE(TAG, "Failed to create obstacle task");
+        return;
+    }
+
     while (true)
     {
         // Blocking read from UART (you may want to use ringbuffer for DMA)
@@ -177,8 +210,11 @@ extern "C" void app_main(void)
                 Points2D frame = parser.GetLaserScanData();
                 parser.ResetFrameReady();
 
-                // Example thresholds: crash @ 0.3m, warn @ 0.8m, ok above 1.2m
-                analyzeObstacles(frame, 0.3f, 0.8f, 1.2f);
+                Points2D *copy = new Points2D(frame);
+                if (xQueueSend(obstacleQueue, &copy, 0) != pdTRUE)
+                {
+                    delete copy;
+                }
 
                 // Use the frame (e.g., find nearest obstacle, draw scan, etc.)
                 // for (const auto &pt : frame)

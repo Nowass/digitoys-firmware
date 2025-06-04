@@ -40,7 +40,7 @@ __attribute__((optimize("O0"))) void analyzeObstacles(const std::vector<lidar::P
         float angle = pt.angle;
         float dist = pt.distance / 1000.0f; // mm → m
 
-        if (pt.intensity < 100)
+        if (pt.intensity == 0)
             continue;
 
         if (!(angle < 12.0f || angle > 347.0f))
@@ -134,8 +134,8 @@ extern "C" void app_main(void)
         .angleMaxDeg = 347.5f,
         .motorPin = GPIO_NUM_4,
         .motorChannel = LEDC_CHANNEL_0,
-        .motorFreqHz = 50000,
-        .motorDutyPct = 50};
+        .motorFreqHz = 30000,
+        .motorDutyPct = 40};
 
     esp_err_t err = uart_hal.init(cfg);
     if (err != ESP_OK)

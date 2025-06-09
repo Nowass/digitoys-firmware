@@ -2,194 +2,184 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "esp_system.h"
-#include "LiDARConfig.hpp"
-#include "uart-hal.hpp"
-#include "motor-hal.hpp"
-#include "frame-parser.hpp"
+#include "driver/rmt_tx.h"
+#include "driver/rmt_rx.h"
+#include "driver/gpio.h"
+#include "esp_timer.h"
 
-#define BUF_SIZE 512
+static const char *TAG = "RMT_PWM";
 
-static const char *TAG = "HelloWorld";
+// ==== Pin definitions ====
+constexpr gpio_num_t PWM_GEN_GPIO = GPIO_NUM_6;   // Output (TX simulation)
+constexpr gpio_num_t PWM_INPUT_GPIO = GPIO_NUM_7; // Input (RMT RX)
+constexpr gpio_num_t PWM_OUT_GPIO = GPIO_NUM_8;   // Output (replayed pulse via GPIO)
 
-using namespace lidar;
+// ==== Constants ====
+constexpr uint32_t PWM_FREQ_HZ = 50;
+constexpr uint32_t RMT_CLK_HZ = 1'000'000;     // 1 us ticks
+constexpr uint32_t RMT_PWM_PERIOD_US = 20'000; // 20 ms
 
-void hello_task(void *pvParameter)
+// ==== RMT handles ====
+rmt_channel_handle_t rmt_rx_channel = nullptr;
+rmt_channel_handle_t rmt_tx_channel = nullptr;
+rmt_encoder_handle_t copy_encoder = nullptr;
+
+// ==== Transmit configuration ====
+static const rmt_transmit_config_t pwm_tx_config = {
+    .loop_count = 0,          // single-shot
+    .flags = {.eot_level = 0} // output low when done
+};
+
+// ==== Initialize RMT-based PWM generator ====
+void init_rmt_pwm_generator()
 {
-    while (1)
+    rmt_tx_channel_config_t tx_cfg = {
+        .gpio_num = PWM_GEN_GPIO,
+        .clk_src = RMT_CLK_SRC_DEFAULT,
+        .resolution_hz = RMT_CLK_HZ,
+        .mem_block_symbols = 64,
+        .trans_queue_depth = 8,
+        .flags = {.invert_out = false}};
+    esp_err_t err = rmt_new_tx_channel(&tx_cfg, &rmt_tx_channel);
+    if (err != ESP_OK)
     {
-        // Get the current time since startup in milliseconds
-        uint32_t uptime = esp_log_timestamp();
-
-        ESP_LOGI(TAG, "Hello, World! System uptime: %lu ms", uptime);
-        vTaskDelay(2000 / portTICK_PERIOD_MS); // Delay for 2000 ms (2 seconds)
+        ESP_LOGE(TAG, "rmt_new_tx_channel failed: %s", esp_err_to_name(err));
+        abort();
+    }
+    err = rmt_enable(rmt_tx_channel);
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "rmt_enable tx channel failed: %s", esp_err_to_name(err));
+        abort();
+    }
+    rmt_copy_encoder_config_t enc_cfg = {};
+    err = rmt_new_copy_encoder(&enc_cfg, &copy_encoder);
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "rmt_new_copy_encoder failed: %s", esp_err_to_name(err));
+        abort();
     }
 }
 
-__attribute__((optimize("O0"))) void analyzeObstacles(const std::vector<lidar::PointData> &frame,
-                                                      float crashThreshold, float obstacleThreshold, float noObstacleThreshold)
+// ==== PWM generator task ====
+void rmt_pwm_generator_task(void *param)
 {
-    float sumLeft = 0, sumFront = 0, sumRight = 0;
-    int countLeft = 0, countFront = 0, countRight = 0;
-    static bool printedOnce = false;
+    // Pre-calc durations: 20% duty at 50Hz => 4ms high, 16ms low
+    const uint32_t high_us = (RMT_PWM_PERIOD_US * 20) / 100;
+    const uint32_t low_us = RMT_PWM_PERIOD_US - high_us;
+    const uint32_t period_ms = RMT_PWM_PERIOD_US / 1000;
+    rmt_symbol_word_t symbol = {};
+    symbol.level0 = 1;
+    symbol.duration0 = high_us;
+    symbol.level1 = 0;
+    symbol.duration1 = low_us;
 
-    bool crashDetected = false;
-    float closestDist = std::numeric_limits<float>::max();
-
-    for (const auto &pt : frame)
+    while (true)
     {
-        float angle = pt.angle;
-        float dist = pt.distance / 1000.0f; // mm → m
+        ESP_LOGD(TAG, "TX pulse: %u us high, %u us low", high_us, low_us);
+        // reset encoder state
+        rmt_encoder_reset(copy_encoder);
 
-        if (pt.intensity < 100)
+        // transmit
+        esp_err_t tx_err = rmt_transmit(rmt_tx_channel, copy_encoder,
+                                        &symbol, sizeof(symbol), &pwm_tx_config);
+        if (tx_err != ESP_OK)
+        {
+            ESP_LOGE(TAG, "rmt_transmit error: %s", esp_err_to_name(tx_err));
+            vTaskDelay(pdMS_TO_TICKS(1));
             continue;
-
-        if (!(angle < 12.0f || angle > 347.0f))
-            continue;
-
-        if (dist <= crashThreshold)
-        {
-            crashDetected = true;
         }
-
-        if (dist < closestDist)
-            closestDist = dist;
-
-        if (angle >= 360.0f)
-            angle -= 360.0f;
-        if (angle < 0.0f)
-            angle += 360.0f;
-
-        if ((angle >= 347.0f && angle <= 356.0f))
+        esp_err_t wait_err = rmt_tx_wait_all_done(rmt_tx_channel,
+                                                  pdMS_TO_TICKS(period_ms + 1));
+        if (wait_err != ESP_OK)
         {
-            sumLeft += dist;
-            countLeft++;
+            ESP_LOGE(TAG, "rmt_tx_wait_all_done error: %s", esp_err_to_name(wait_err));
         }
-        else if ((angle > 356.0f && angle < 360.0f) || (angle >= 0.0f && angle <= 4.0f))
-        {
-            sumFront += dist;
-            countFront++;
-        }
-        else if ((angle > 4.0f && angle <= 12.0f))
-        {
-            sumRight += dist;
-            countRight++;
-        }
+        // enforce period
+        vTaskDelay(pdMS_TO_TICKS(period_ms));
     }
+}
 
-    if (crashDetected)
+// ==== Initialize RMT receiver ====
+void init_rmt_rx()
+{
+    rmt_rx_channel_config_t rx_cfg = {
+        .gpio_num = PWM_INPUT_GPIO,
+        .clk_src = RMT_CLK_SRC_DEFAULT,
+        .resolution_hz = RMT_CLK_HZ,
+        .mem_block_symbols = 64,
+        .intr_priority = 0,
+        .flags = {.invert_in = false, .with_dma = false, .allow_pd = false}};
+    esp_err_t err = rmt_new_rx_channel(&rx_cfg, &rmt_rx_channel);
+    if (err != ESP_OK)
     {
-        ESP_LOGW("OBSTACLE", "⚠️ CRASH DETECTED! Obstacle too close!");
-        printedOnce = false;
-        return;
+        ESP_LOGE(TAG, "rmt_new_rx_channel failed: %s", esp_err_to_name(err));
+        abort();
     }
-
-    if (closestDist <= obstacleThreshold)
+    err = rmt_enable(rmt_rx_channel);
+    if (err != ESP_OK)
     {
-        bool printed = false;
-
-        if (countLeft > 0 && (sumLeft / countLeft) <= obstacleThreshold)
-        {
-            ESP_LOGI("OBSTACLE", "Obstacle LEFT at %.2f m", sumLeft / countLeft);
-            printed = true;
-        }
-        if (countFront > 0 && (sumFront / countFront) <= obstacleThreshold)
-        {
-            ESP_LOGI("OBSTACLE", "Obstacle FRONT at %.2f m", sumFront / countFront);
-            printed = true;
-        }
-        if (countRight > 0 && (sumRight / countRight) <= obstacleThreshold)
-        {
-            ESP_LOGI("OBSTACLE", "Obstacle RIGHT at %.2f m", sumRight / countRight);
-            printed = true;
-        }
-
-        if (printed)
-            printedOnce = false;
+        ESP_LOGE(TAG, "rmt_enable rx channel failed: %s", esp_err_to_name(err));
+        abort();
     }
-    else if (closestDist >= noObstacleThreshold)
+}
+
+// ==== Simple GPIO-based pulse output ====
+void init_gpio_output()
+{
+    gpio_reset_pin(PWM_OUT_GPIO);
+    gpio_set_direction(PWM_OUT_GPIO, GPIO_MODE_OUTPUT);
+    gpio_set_level(PWM_OUT_GPIO, 0);
+}
+
+// ==== PWM passthrough task ====
+void pwm_passthrough_task(void *param)
+{
+    rmt_symbol_word_t symbols[8];
+    rmt_receive_config_t cfg = {
+        .signal_range_min_ns = 800000,
+        .signal_range_max_ns = 2200000,
+        .flags = {}};
+    while (true)
     {
-        if (!printedOnce)
+        esp_err_t err = rmt_receive(rmt_rx_channel, symbols,
+                                    sizeof(symbols), &cfg);
+        if (err == ESP_OK)
         {
-            ESP_LOGI("OBSTACLE", "✅ No obstacle in range");
-            printedOnce = true;
+            uint32_t h = symbols[0].duration0;
+            ESP_LOGI(TAG, "RX pulse high: %u us", h);
+            gpio_set_level(PWM_OUT_GPIO, 1);
+            esp_rom_delay_us(h);
+            gpio_set_level(PWM_OUT_GPIO, 0);
+            esp_rom_delay_us(symbols[0].duration1);
         }
+        else
+        {
+            ESP_LOGW(TAG, "rmt_receive error: %s", esp_err_to_name(err));
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
 
 extern "C" void app_main(void)
 {
-    static const char *TAG = "APP_MAIN";
+    init_rmt_pwm_generator();
+    init_rmt_rx();
+    init_gpio_output();
 
-    UART_HAL uart_hal;
-    Motor_HAL motor;
-    FramePraser parser;
-    uint8_t data[BUF_SIZE];
-
-    LiDARConfig cfg = {
-        .uartPort = UART_NUM_1,
-        .txPin = GPIO_NUM_10,
-        .rxPin = GPIO_NUM_11,
-        .dmaBufferLen = 2048,
-        .angleMinDeg = 12.5f,
-        .angleMaxDeg = 347.5f,
-        .motorPin = GPIO_NUM_4,
-        .motorChannel = LEDC_CHANNEL_0,
-        .motorFreqHz = 50000,
-        .motorDutyPct = 50};
-
-    esp_err_t err = uart_hal.init(cfg);
-    if (err != ESP_OK)
+    // Increase stack sizes to avoid overflow
+    BaseType_t ret = xTaskCreate(rmt_pwm_generator_task,
+                                 "rmt_pwm_gen", 8192, nullptr, 4, nullptr);
+    if (ret != pdPASS)
     {
-        ESP_LOGE(TAG, "UART_HAL init failed");
-        return;
+        ESP_LOGE(TAG, "Failed to create rmt_pwm_generator_task");
+        abort();
     }
-
-    ESP_LOGI(TAG, "UART_HAL initialized successfully");
-
-    // Initialize motor with 50 kHz PWM and 50% duty
-    err = motor.init(cfg);
-    if (err != ESP_OK)
+    ret = xTaskCreate(pwm_passthrough_task,
+                      "pwm_passthrough", 8192, nullptr, 5, nullptr);
+    if (ret != pdPASS)
     {
-        ESP_LOGE(TAG, "Motor init failed");
-        return;
-    }
-
-    // Start the motor
-    err = motor.start();
-    if (err != ESP_OK)
-    {
-        ESP_LOGE(TAG, "Motor start failed");
-        return;
-    }
-
-    ESP_LOGI(TAG, "Motor started");
-
-    while (true)
-    {
-        // Blocking read from UART (you may want to use ringbuffer for DMA)
-        int len = uart_read_bytes(UART_NUM_1, data, BUF_SIZE, pdMS_TO_TICKS(20));
-        if (len > 0)
-        {
-            parser.CommReadCallback((const char *)data, len);
-
-            if (parser.IsFrameReady())
-            {
-                Points2D frame = parser.GetLaserScanData();
-                parser.ResetFrameReady();
-
-                // Example thresholds: crash @ 0.3m, warn @ 0.8m, ok above 1.2m
-                analyzeObstacles(frame, 0.3f, 0.8f, 1.2f);
-
-                // Use the frame (e.g., find nearest obstacle, draw scan, etc.)
-                // for (const auto &pt : frame)
-                // {
-                //     if (!(pt.angle < cfg.angleMinDeg || pt.angle > cfg.angleMaxDeg))
-                //         continue;
-
-                //     ESP_LOGI(TAG, "Angle: %.1f°, Distance: %.2f m, Confidence: %d",
-                //              pt.angle, pt.distance / 1000.0, pt.intensity);
-                // }
-            }
-        }
+        ESP_LOGE(TAG, "Failed to create pwm_passthrough_task");
+        abort();
     }
 }

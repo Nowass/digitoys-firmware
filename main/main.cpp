@@ -77,10 +77,7 @@ void rmt_pwm_generator_task(void *param)
     while (true)
     {
         ESP_LOGD(TAG, "TX pulse: %u us high, %u us low", high_us, low_us);
-        // reset encoder state
         rmt_encoder_reset(copy_encoder);
-
-        // transmit
         esp_err_t tx_err = rmt_transmit(rmt_tx_channel, copy_encoder,
                                         &symbol, sizeof(symbol), &pwm_tx_config);
         if (tx_err != ESP_OK)
@@ -95,7 +92,6 @@ void rmt_pwm_generator_task(void *param)
         {
             ESP_LOGE(TAG, "rmt_tx_wait_all_done error: %s", esp_err_to_name(wait_err));
         }
-        // enforce period
         vTaskDelay(pdMS_TO_TICKS(period_ms));
     }
 }
@@ -110,18 +106,8 @@ void init_rmt_rx()
         .mem_block_symbols = 64,
         .intr_priority = 0,
         .flags = {.invert_in = false, .with_dma = false, .allow_pd = false}};
-    esp_err_t err = rmt_new_rx_channel(&rx_cfg, &rmt_rx_channel);
-    if (err != ESP_OK)
-    {
-        ESP_LOGE(TAG, "rmt_new_rx_channel failed: %s", esp_err_to_name(err));
-        abort();
-    }
-    err = rmt_enable(rmt_rx_channel);
-    if (err != ESP_OK)
-    {
-        ESP_LOGE(TAG, "rmt_enable rx channel failed: %s", esp_err_to_name(err));
-        abort();
-    }
+    ESP_ERROR_CHECK(rmt_new_rx_channel(&rx_cfg, &rmt_rx_channel));
+    ESP_ERROR_CHECK(rmt_enable(rmt_rx_channel));
 }
 
 // ==== Simple GPIO-based pulse output ====
@@ -135,21 +121,24 @@ void init_gpio_output()
 // ==== PWM passthrough task ====
 void pwm_passthrough_task(void *param)
 {
-    rmt_symbol_word_t symbols[8];
-    rmt_receive_config_t cfg = {
-        .signal_range_min_ns = 800000,
-        .signal_range_max_ns = 2200000,
+    // Configure receive filter to catch long RC pulses:
+    rmt_receive_config_t recv_cfg = {
+        .signal_range_min_ns = 1000,                     // min glitch filter = 1 us
+        .signal_range_max_ns = RMT_PWM_PERIOD_US * 1000, // max idle threshold = 20 ms
         .flags = {}};
+    rmt_symbol_word_t symbols[8];
+
     while (true)
     {
-        esp_err_t err = rmt_receive(rmt_rx_channel, symbols,
-                                    sizeof(symbols), &cfg);
+        esp_err_t err = rmt_receive(rmt_rx_channel,
+                                    symbols, sizeof(symbols),
+                                    &recv_cfg);
         if (err == ESP_OK)
         {
-            uint32_t h = symbols[0].duration0;
-            ESP_LOGI(TAG, "RX pulse high: %u us", h);
+            uint32_t high_us = symbols[0].duration0;
+            ESP_LOGI(TAG, "RX pulse high: %u us", high_us);
             gpio_set_level(PWM_OUT_GPIO, 1);
-            esp_rom_delay_us(h);
+            esp_rom_delay_us(high_us);
             gpio_set_level(PWM_OUT_GPIO, 0);
             esp_rom_delay_us(symbols[0].duration1);
         }
@@ -167,7 +156,6 @@ extern "C" void app_main(void)
     init_rmt_rx();
     init_gpio_output();
 
-    // Increase stack sizes to avoid overflow
     BaseType_t ret = xTaskCreate(rmt_pwm_generator_task,
                                  "rmt_pwm_gen", 8192, nullptr, 4, nullptr);
     if (ret != pdPASS)

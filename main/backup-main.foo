@@ -1,0 +1,173 @@
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/queue.h"
+#include "esp_log.h"
+#include "esp_system.h"
+#include "driver/rmt_tx.h"
+#include "driver/rmt_rx.h"
+
+static const char *TAG = "RMT_PWM";
+
+// ==== GPIO definitions ====
+constexpr gpio_num_t PWM_GEN_GPIO = GPIO_NUM_6;         // Generator output (50Hz)
+constexpr gpio_num_t PWM_INPUT_GPIO = GPIO_NUM_7;       // Input capture
+constexpr gpio_num_t PWM_PASSTHROUGH_GPIO = GPIO_NUM_8; // Passthrough output (same channel)
+
+// ==== Timing constants ====
+constexpr uint32_t RMT_CLK_HZ = 1000000;      // 1 µs resolution
+constexpr uint32_t RMT_PWM_PERIOD_US = 20000; // 20 ms period
+
+// ==== RMT handles and queue ====
+static rmt_channel_handle_t tx_chan = nullptr;
+static rmt_encoder_handle_t encoder = nullptr;
+static rmt_channel_handle_t rx_chan = nullptr;
+static QueueHandle_t pass_queue = nullptr;
+
+// ==== Transmit configuration (single-shot, low at end) ====
+static const rmt_transmit_config_t tx_config = {
+    .loop_count = 0,
+    .flags = {.eot_level = 0}};
+
+// ==== RX configuration ====
+static rmt_receive_config_t rx_config;
+static rmt_symbol_word_t rx_buf[8];
+
+// ==== RX interrupt callback - queue symbol and re-arm ====
+static bool IRAM_ATTR on_rmt_rx_done(
+    rmt_channel_handle_t channel,
+    const rmt_rx_done_event_data_t *edata,
+    void *user_data)
+{
+    if (edata->num_symbols > 0)
+    {
+        BaseType_t woke = pdFALSE;
+        xQueueSendFromISR(pass_queue,
+                          &edata->received_symbols[0],
+                          &woke);
+        if (woke)
+            portYIELD_FROM_ISR();
+    }
+    // restart RX
+    rmt_receive(rx_chan,
+                rx_buf,
+                sizeof(rx_buf),
+                &rx_config);
+    return false;
+}
+
+// ==== Initialize RMT TX for 50Hz generator & passthrough ====
+void init_tx()
+{
+    // Single TX channel on PWM_PASSTHROUGH_GPIO
+    rmt_tx_channel_config_t cfg = {};
+    cfg.gpio_num = PWM_PASSTHROUGH_GPIO;
+    cfg.clk_src = RMT_CLK_SRC_DEFAULT;
+    cfg.resolution_hz = RMT_CLK_HZ;
+    cfg.mem_block_symbols = 64;
+    cfg.trans_queue_depth = 8;
+    cfg.flags.invert_out = false;
+
+    ESP_ERROR_CHECK(rmt_new_tx_channel(&cfg, &tx_chan));
+    ESP_ERROR_CHECK(rmt_enable(tx_chan));
+
+    // Encoder for both tasks
+    rmt_copy_encoder_config_t ecfg = {};
+    ESP_ERROR_CHECK(rmt_new_copy_encoder(&ecfg, &encoder));
+}
+
+// ==== Initialize RMT RX with callback ====
+void init_rx()
+{
+    rmt_rx_channel_config_t cfg = {};
+    cfg.gpio_num = PWM_INPUT_GPIO;
+    cfg.clk_src = RMT_CLK_SRC_DEFAULT;
+    cfg.resolution_hz = RMT_CLK_HZ;
+    cfg.mem_block_symbols = 64;
+    cfg.intr_priority = 0;
+    cfg.flags.invert_in = false;
+    cfg.flags.with_dma = false;
+    cfg.flags.allow_pd = false;
+
+    ESP_ERROR_CHECK(rmt_new_rx_channel(&cfg, &rx_chan));
+    ESP_ERROR_CHECK(rmt_enable(rx_chan));
+
+    // configure receive parameters
+    rx_config.signal_range_min_ns = 1000;
+    rx_config.signal_range_max_ns = RMT_PWM_PERIOD_US * 1000;
+    rx_config.flags.en_partial_rx = true;
+
+    static rmt_rx_event_callbacks_t cbs = {.on_recv_done = on_rmt_rx_done};
+    ESP_ERROR_CHECK(rmt_rx_register_event_callbacks(rx_chan, &cbs, NULL));
+
+    ESP_ERROR_CHECK(rmt_receive(
+        rx_chan,
+        rx_buf,
+        sizeof(rx_buf),
+        &rx_config));
+}
+
+// ==== Generator task: output 50Hz 20% duty ====
+void gen_task(void *param)
+{
+    const uint32_t high_us = (RMT_PWM_PERIOD_US * 20) / 100;
+    const uint32_t low_us = RMT_PWM_PERIOD_US - high_us;
+    const TickType_t delay = pdMS_TO_TICKS(RMT_PWM_PERIOD_US / 1000);
+
+    rmt_symbol_word_t symbol = {};
+    symbol.level0 = 1;
+    symbol.duration0 = high_us;
+    symbol.level1 = 0;
+    symbol.duration1 = low_us;
+
+    while (true)
+    {
+        rmt_encoder_reset(encoder);
+        ESP_ERROR_CHECK(rmt_transmit(
+            tx_chan,
+            encoder,
+            &symbol,
+            sizeof(symbol),
+            &tx_config));
+        ESP_ERROR_CHECK(rmt_tx_wait_all_done(
+            tx_chan,
+            portMAX_DELAY));
+        vTaskDelay(delay);
+    }
+}
+
+// ==== Passthrough task: forward captured symbols ====
+void pt_task(void *param)
+{
+    rmt_symbol_word_t sym;
+    while (true)
+    {
+        xQueueReceive(pass_queue, &sym, portMAX_DELAY);
+        rmt_encoder_reset(encoder);
+        ESP_ERROR_CHECK(rmt_transmit(
+            tx_chan,
+            encoder,
+            &sym,
+            sizeof(sym),
+            &tx_config));
+        ESP_ERROR_CHECK(rmt_tx_wait_all_done(
+            tx_chan,
+            portMAX_DELAY));
+    }
+}
+
+// ==== Entry point ====
+extern "C" void app_main()
+{
+    pass_queue = xQueueCreate(8, sizeof(rmt_symbol_word_t));
+    if (!pass_queue)
+    {
+        ESP_LOGE(TAG, "Queue alloc failed");
+        abort();
+    }
+
+    init_tx();
+    init_rx();
+
+    xTaskCreate(gen_task, "gen_task", 2048, NULL, 4, NULL);
+    xTaskCreate(pt_task, "pt_task", 2048, NULL, 5, NULL);
+}

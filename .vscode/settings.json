@@ -5,7 +5,7 @@
   "idf.openOcdConfigs": [
     "board/esp32c6-builtin.cfg"
   ],
-  "idf.port": "/dev/ttyUSB0",
+  "idf.port": "/dev/ttyACM0",
   "idf.toolsPath": "/opt/esp",
   "idf.customExtraVars": {
     "IDF_TARGET": "esp32c6"
@@ -82,6 +82,7 @@
     "cinttypes": "cpp",
     "typeinfo": "cpp",
     "variant": "cpp",
-    "*.inc": "cpp"
+    "*.inc": "cpp",
+    "ranges": "cpp"
   },
 }

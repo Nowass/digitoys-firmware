@@ -4,6 +4,7 @@
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "driver/rmt_rx.h"
+#include "driver/ledc.h"
 #include "esp_log.h"
 
 static const char *TAG = "rmt_rx";
@@ -39,15 +40,28 @@ static void rmt_rx_task(void *arg)
     ESP_LOGI(TAG, "[*]====> ENTER THE TASK");
     auto *p = static_cast<RmtTaskParams *>(arg);
     rmt_rx_done_event_data_t evt;
+    float duty = 0.0;
+    float duty_ticks = 0.0;
+    uint32_t max_ticks = (1 << LEDC_TIMER_15_BIT) - 1;
     while (xQueueReceive(p->queue, &evt, portMAX_DELAY) == pdTRUE)
     {
         ESP_LOGI(TAG, "Got %d symbols", evt.num_symbols);
         for (int i = 0; i < evt.num_symbols; i++)
         {
             auto &s = evt.received_symbols[i];
-            ESP_LOGI(TAG, "  sym %2d: L0=%d @%dus  L1=%d @%dus",
-                     i, s.level0, s.duration0, s.level1, s.duration1);
+            duty = (s.duration0 / 16129.0);
+            duty_ticks = (uint32_t)(duty * max_ticks + 0.5f);
         }
+
+        ESP_ERROR_CHECK(ledc_set_duty(LEDC_LOW_SPEED_MODE,
+                                      LEDC_CHANNEL_0,
+                                      duty_ticks));
+        ESP_ERROR_CHECK(ledc_update_duty(LEDC_LOW_SPEED_MODE,
+                                         LEDC_CHANNEL_0));
+
+        ESP_LOGI(TAG, "Duty updated: %f%%", duty);
+        ESP_LOGI(TAG, "Duty ticks: %f%%", duty_ticks);
+
         // re-arm for next frame
         ESP_ERROR_CHECK(rmt_receive(
             p->chan,
@@ -102,18 +116,30 @@ extern "C" void app_main()
         .queue = recv_queue,
     };
     TaskHandle_t rmt_task_handle = nullptr;
-    BaseType_t res = xTaskCreate(rmt_rx_task,
-                                 "rmt_rx_task",
-                                 4096,
-                                 &params,
-                                 tskIDLE_PRIORITY + 1,
-                                 &rmt_task_handle);
-    if (res != pdPASS)
-    {
-        ESP_LOGE(TAG, "xTaskCreate failed! err=%d", res);
-    }
-    else
-    {
-        ESP_LOGI(TAG, "rmt_rx_task created, handle=%p", (void *)rmt_task_handle);
-    }
+    xTaskCreate(rmt_rx_task,
+                "rmt_rx_task",
+                4096,
+                &params,
+                tskIDLE_PRIORITY + 1,
+                &rmt_task_handle);
+    // --- LEDC setup on GPIO19 ---
+    ledc_timer_config_t ledc_timer = {
+        .speed_mode = LEDC_LOW_SPEED_MODE,
+        .duty_resolution = LEDC_TIMER_15_BIT,
+        .timer_num = LEDC_TIMER_0,
+        .freq_hz = 62,
+        .clk_cfg = LEDC_AUTO_CLK,
+    };
+    ESP_ERROR_CHECK(ledc_timer_config(&ledc_timer));
+
+    ledc_channel_config_t ledc_channel = {
+        .gpio_num = GPIO_NUM_19, // your LEDC output pin
+        .speed_mode = LEDC_LOW_SPEED_MODE,
+        .channel = LEDC_CHANNEL_0,
+        .intr_type = LEDC_INTR_DISABLE,
+        .timer_sel = LEDC_TIMER_0,
+        .duty = 0,
+        .hpoint = 0,
+    };
+    ESP_ERROR_CHECK(ledc_channel_config(&ledc_channel));
 }

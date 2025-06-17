@@ -1,173 +1,119 @@
+#include <driver/rmt_types.h>
+#include <driver/rmt_rx.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "esp_log.h"
-#include "esp_system.h"
-#include "driver/rmt_tx.h"
+#include "freertos/queue.h"
 #include "driver/rmt_rx.h"
-#include "driver/gpio.h"
-#include "esp_timer.h"
+#include "esp_log.h"
 
-static const char *TAG = "RMT_PWM";
+static const char *TAG = "rmt_rx";
+// 1) Pick a big symbol depth. 128 is the max on most ESP32 RMT channels.
+static constexpr size_t SYMBOL_BUFFER_SIZE = 64;
+// 2) Your symbol buffer, sized in symbols
+static rmt_symbol_word_t raw_symbols[SYMBOL_BUFFER_SIZE];
 
-// ==== Pin definitions ====
-constexpr gpio_num_t PWM_GEN_GPIO = GPIO_NUM_6;   // Output (TX simulation)
-constexpr gpio_num_t PWM_INPUT_GPIO = GPIO_NUM_7; // Input (RMT RX)
-constexpr gpio_num_t PWM_OUT_GPIO = GPIO_NUM_8;   // Output (replayed pulse via GPIO)
+// ISR callback: forwards the done event to our queue
+static bool IRAM_ATTR on_rmt_recv_done(rmt_channel_handle_t channel,
+                                       const rmt_rx_done_event_data_t *edata,
+                                       void *user_data)
+{
+    BaseType_t woken = pdFALSE;
+    xQueueSendFromISR((QueueHandle_t)user_data, edata, &woken);
+    return (bool)(woken == pdTRUE);
+}
 
-// ==== Constants ====
-constexpr uint32_t PWM_FREQ_HZ = 50;
-constexpr uint32_t RMT_CLK_HZ = 1'000'000;     // 1 us ticks
-constexpr uint32_t RMT_PWM_PERIOD_US = 20'000; // 20 ms
-
-// ==== RMT handles ====
-rmt_channel_handle_t rmt_rx_channel = nullptr;
-rmt_channel_handle_t rmt_tx_channel = nullptr;
-rmt_encoder_handle_t copy_encoder = nullptr;
-
-// ==== Transmit configuration ====
-static const rmt_transmit_config_t pwm_tx_config = {
-    .loop_count = 0,          // single-shot
-    .flags = {.eot_level = 0} // output low when done
+// Struct to hold everything the task needs
+struct RmtTaskParams
+{
+    rmt_channel_handle_t chan;
+    rmt_receive_config_t recv_cfg;
+    rmt_symbol_word_t *raw_symbols;
+    size_t buffer_bytes;
+    QueueHandle_t queue;
 };
 
-// ==== Initialize RMT-based PWM generator ====
-void init_rmt_pwm_generator()
+// This is our FreeRTOS task (no captures!)
+// It pulls events from the queue, logs them, and re-arms the RMT
+static void rmt_rx_task(void *arg)
 {
-    rmt_tx_channel_config_t tx_cfg = {
-        .gpio_num = PWM_GEN_GPIO,
-        .clk_src = RMT_CLK_SRC_DEFAULT,
-        .resolution_hz = RMT_CLK_HZ,
-        .mem_block_symbols = 64,
-        .trans_queue_depth = 8,
-        .flags = {.invert_out = false}};
-    esp_err_t err = rmt_new_tx_channel(&tx_cfg, &rmt_tx_channel);
-    if (err != ESP_OK)
+    ESP_LOGI(TAG, "[*]====> ENTER THE TASK");
+    auto *p = static_cast<RmtTaskParams *>(arg);
+    rmt_rx_done_event_data_t evt;
+    while (xQueueReceive(p->queue, &evt, portMAX_DELAY) == pdTRUE)
     {
-        ESP_LOGE(TAG, "rmt_new_tx_channel failed: %s", esp_err_to_name(err));
-        abort();
-    }
-    err = rmt_enable(rmt_tx_channel);
-    if (err != ESP_OK)
-    {
-        ESP_LOGE(TAG, "rmt_enable tx channel failed: %s", esp_err_to_name(err));
-        abort();
-    }
-    rmt_copy_encoder_config_t enc_cfg = {};
-    err = rmt_new_copy_encoder(&enc_cfg, &copy_encoder);
-    if (err != ESP_OK)
-    {
-        ESP_LOGE(TAG, "rmt_new_copy_encoder failed: %s", esp_err_to_name(err));
-        abort();
+        ESP_LOGI(TAG, "Got %d symbols", evt.num_symbols);
+        for (int i = 0; i < evt.num_symbols; i++)
+        {
+            auto &s = evt.received_symbols[i];
+            ESP_LOGI(TAG, "  sym %2d: L0=%d @%dus  L1=%d @%dus",
+                     i, s.level0, s.duration0, s.level1, s.duration1);
+        }
+        // re-arm for next frame
+        ESP_ERROR_CHECK(rmt_receive(
+            p->chan,
+            p->raw_symbols,
+            p->buffer_bytes,
+            &p->recv_cfg));
     }
 }
 
-// ==== PWM generator task ====
-void rmt_pwm_generator_task(void *param)
+extern "C" void app_main()
 {
-    // Pre-calc durations: 20% duty at 50Hz => 4ms high, 16ms low
-    const uint32_t high_us = (RMT_PWM_PERIOD_US * 20) / 100;
-    const uint32_t low_us = RMT_PWM_PERIOD_US - high_us;
-    const uint32_t period_ms = RMT_PWM_PERIOD_US / 1000;
-    rmt_symbol_word_t symbol = {};
-    symbol.level0 = 1;
-    symbol.duration0 = high_us;
-    symbol.level1 = 0;
-    symbol.duration1 = low_us;
-
-    while (true)
-    {
-        ESP_LOGD(TAG, "TX pulse: %u us high, %u us low", high_us, low_us);
-        rmt_encoder_reset(copy_encoder);
-        esp_err_t tx_err = rmt_transmit(rmt_tx_channel, copy_encoder,
-                                        &symbol, sizeof(symbol), &pwm_tx_config);
-        if (tx_err != ESP_OK)
-        {
-            ESP_LOGE(TAG, "rmt_transmit error: %s", esp_err_to_name(tx_err));
-            vTaskDelay(pdMS_TO_TICKS(1));
-            continue;
-        }
-        esp_err_t wait_err = rmt_tx_wait_all_done(rmt_tx_channel,
-                                                  pdMS_TO_TICKS(period_ms + 1));
-        if (wait_err != ESP_OK)
-        {
-            ESP_LOGE(TAG, "rmt_tx_wait_all_done error: %s", esp_err_to_name(wait_err));
-        }
-        vTaskDelay(pdMS_TO_TICKS(period_ms));
-    }
-}
-
-// ==== Initialize RMT receiver ====
-void init_rmt_rx()
-{
+    // 1) Allocate & configure RX channel
+    rmt_channel_handle_t rx_chan = nullptr;
     rmt_rx_channel_config_t rx_cfg = {
-        .gpio_num = PWM_INPUT_GPIO,
+        .gpio_num = GPIO_NUM_18,
         .clk_src = RMT_CLK_SRC_DEFAULT,
-        .resolution_hz = RMT_CLK_HZ,
-        .mem_block_symbols = 64,
-        .intr_priority = 0,
-        .flags = {.invert_in = false, .with_dma = false, .allow_pd = false}};
-    ESP_ERROR_CHECK(rmt_new_rx_channel(&rx_cfg, &rmt_rx_channel));
-    ESP_ERROR_CHECK(rmt_enable(rmt_rx_channel));
-}
+        .resolution_hz = 1 * 1000 * 1000, // 1 MHz → 1 µs ticks
+        .mem_block_symbols = SYMBOL_BUFFER_SIZE,
+        .intr_priority = 2,
+        .flags{
+            .invert_in = false,
+            .with_dma = false,
+            .allow_pd = false,
+        },
+    };
+    ESP_ERROR_CHECK(rmt_new_rx_channel(&rx_cfg, &rx_chan));
 
-// ==== Simple GPIO-based pulse output ====
-void init_gpio_output()
-{
-    gpio_reset_pin(PWM_OUT_GPIO);
-    gpio_set_direction(PWM_OUT_GPIO, GPIO_MODE_OUTPUT);
-    gpio_set_level(PWM_OUT_GPIO, 0);
-}
+    // 2) Create queue & register ISR callback
+    QueueHandle_t recv_queue = xQueueCreate(3, sizeof(rmt_rx_done_event_data_t));
+    rmt_rx_event_callbacks_t cbs = {.on_recv_done = on_rmt_recv_done};
+    ESP_ERROR_CHECK(rmt_rx_register_event_callbacks(rx_chan, &cbs, recv_queue));
 
-// ==== PWM passthrough task ====
-void pwm_passthrough_task(void *param)
-{
-    // Configure receive filter to catch long RC pulses:
+    ESP_ERROR_CHECK(rmt_enable(rx_chan));
+    // 3) Prepare a receive config + buffer
+    // static rmt_symbol_word_t raw_symbols[64]; // match mem_block_symbols
     rmt_receive_config_t recv_cfg = {
-        .signal_range_min_ns = 1000,                     // min glitch filter = 1 us
-        .signal_range_max_ns = RMT_PWM_PERIOD_US * 1000, // max idle threshold = 20 ms
-        .flags = {}};
-    rmt_symbol_word_t symbols[8];
+        .signal_range_min_ns = 500,              // ignore <1 µs
+        .signal_range_max_ns = 10 * 1000 * 1000, // end frame at 10 ms idle
+        .flags{
+            .en_partial_rx = 1,
+        },
+    };
+    ESP_ERROR_CHECK(rmt_receive(rx_chan, raw_symbols,
+                                sizeof(raw_symbols), &recv_cfg));
 
-    while (true)
+    // 4) Bundle params and start the task
+    static RmtTaskParams params = {
+        .chan = rx_chan,
+        .recv_cfg = recv_cfg,
+        .raw_symbols = raw_symbols,
+        .buffer_bytes = sizeof(raw_symbols),
+        .queue = recv_queue,
+    };
+    TaskHandle_t rmt_task_handle = nullptr;
+    BaseType_t res = xTaskCreate(rmt_rx_task,
+                                 "rmt_rx_task",
+                                 4096,
+                                 &params,
+                                 tskIDLE_PRIORITY + 1,
+                                 &rmt_task_handle);
+    if (res != pdPASS)
     {
-        esp_err_t err = rmt_receive(rmt_rx_channel,
-                                    symbols, sizeof(symbols),
-                                    &recv_cfg);
-        if (err == ESP_OK)
-        {
-            uint32_t high_us = symbols[0].duration0;
-            ESP_LOGI(TAG, "RX pulse high: %u us", high_us);
-            gpio_set_level(PWM_OUT_GPIO, 1);
-            esp_rom_delay_us(high_us);
-            gpio_set_level(PWM_OUT_GPIO, 0);
-            esp_rom_delay_us(symbols[0].duration1);
-        }
-        else
-        {
-            ESP_LOGW(TAG, "rmt_receive error: %s", esp_err_to_name(err));
-        }
-        vTaskDelay(pdMS_TO_TICKS(10));
+        ESP_LOGE(TAG, "xTaskCreate failed! err=%d", res);
     }
-}
-
-extern "C" void app_main(void)
-{
-    init_rmt_pwm_generator();
-    init_rmt_rx();
-    init_gpio_output();
-
-    BaseType_t ret = xTaskCreate(rmt_pwm_generator_task,
-                                 "rmt_pwm_gen", 8192, nullptr, 4, nullptr);
-    if (ret != pdPASS)
+    else
     {
-        ESP_LOGE(TAG, "Failed to create rmt_pwm_generator_task");
-        abort();
-    }
-    ret = xTaskCreate(pwm_passthrough_task,
-                      "pwm_passthrough", 8192, nullptr, 5, nullptr);
-    if (ret != pdPASS)
-    {
-        ESP_LOGE(TAG, "Failed to create pwm_passthrough_task");
-        abort();
+        ESP_LOGI(TAG, "rmt_rx_task created, handle=%p", (void *)rmt_task_handle);
     }
 }

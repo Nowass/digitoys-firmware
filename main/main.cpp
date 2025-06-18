@@ -29,18 +29,21 @@ static void ControlTask(void *pv)
     while (true)
     {
         auto info = lidar.getObstacleInfo();
-        if (info.obstacle && !obstacle_state)
+        if (driver.isThrottlePressed(0))
         {
-            obstacle_state = true;
-            ESP_LOGW(TAG, "Obstacle! Applying brake duty");
-            driver.pausePassthrough(0);
-            driver.setDuty(0, BRAKE);
-        }
-        else if (!info.obstacle && obstacle_state)
-        {
-            obstacle_state = false;
-            ESP_LOGI(TAG, "Obstacle cleared. Resuming passthrough");
-            driver.resumePassthrough(0);
+            if (info.obstacle && !obstacle_state)
+            {
+                obstacle_state = true;
+                ESP_LOGW(TAG, "Obstacle! Applying brake duty");
+                driver.pausePassthrough(0);
+                driver.setDuty(0, BRAKE);
+            }
+            else if (!info.obstacle && obstacle_state)
+            {
+                obstacle_state = false;
+                ESP_LOGI(TAG, "Obstacle cleared. Resuming passthrough");
+                driver.resumePassthrough(0);
+            }
         }
 
         vTaskDelay(pdMS_TO_TICKS(50));

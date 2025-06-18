@@ -15,6 +15,9 @@ namespace lidar
     int baudRate = 230400;
     int dmaBufferLen = 1024;
 
+    // Angles defining the sector used for obstacle detection.Add commentMore actions
+    // If `angleMinDeg` is greater than `angleMaxDeg`, the range wraps
+    // around 360° (e.g. 350° .. 10°).
     float angleMinDeg = 0.0f;
     float angleMaxDeg = 360.0f;
 

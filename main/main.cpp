@@ -55,7 +55,7 @@ extern "C" __attribute__((optimize("O0"))) void app_main()
     static constexpr float BRAKE_NORM = (MIN_PERCENT - MIN_PERCENT) / (MAX_PERCENT - MIN_PERCENT); // 0.0f
     static constexpr float CRASH_THRESHOLD = 0.3f;                                                 // m
     static constexpr float OBSTACLE_THRESHOLD = 0.8f;                                              // m
-    static constexpr float NO_OBSTACLE_THRESHOLD = 1.2f;                                           // m
+    static constexpr float NO_OBSTACLE_THRESHOLD = 1.2f;
 
     // Main loop: read LiDAR + control passthrough or brake
     while (true)
@@ -98,15 +98,15 @@ extern "C" __attribute__((optimize("O0"))) void app_main()
                     // obstacle just detected: stop passthrough & brake
                     obstacle_state = true;
                     ESP_LOGW(TAG, "Obstacle! Applying brake duty");
-                    pwm_driver.shutdown();
-                    pwm_driver.setDuty(0, BRAKE_NORM);
+                    ESP_ERROR_CHECK(pwm_driver.pausePassthrough(0));
+                    pwm_driver.setDuty(0, 0.12);
                 }
                 else if (!obstacle && obstacle_state)
                 {
                     // obstacle cleared: resume passthrough
                     obstacle_state = false;
                     ESP_LOGI(TAG, "Obstacle cleared. Resuming passthrough");
-                    ESP_ERROR_CHECK(pwm_driver.initialize());
+                    ESP_ERROR_CHECK(pwm_driver.resumePassthrough(0));
                 }
             }
         }

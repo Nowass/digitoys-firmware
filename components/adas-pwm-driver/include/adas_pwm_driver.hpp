@@ -100,6 +100,23 @@ namespace adas
         esp_err_t shutdown();
         esp_err_t setDuty(size_t idx, float duty);
 
+    public:
+        /// Stop only the RMT input for channel idx
+        esp_err_t pausePassthrough(size_t idx)
+        {
+            if (idx >= channels_.size())
+                return ESP_ERR_INVALID_ARG;
+            return channels_[idx]->stop(); // only stops the RMT task
+        }
+
+        /// Restart only the RMT input for channel idx
+        esp_err_t resumePassthrough(size_t idx)
+        {
+            if (idx >= channels_.size())
+                return ESP_ERR_INVALID_ARG;
+            return channels_[idx]->start(); // leaves LEDC untouched
+        }
+
     private:
         std::vector<PwmChannelConfig> configs_;
         std::vector<std::unique_ptr<PwmPassthroughChannel>> channels_;

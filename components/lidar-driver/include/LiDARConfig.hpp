@@ -22,6 +22,10 @@ namespace lidar
     ledc_channel_t motorChannel = LEDC_CHANNEL_0;
     uint32_t motorFreqHz = 50000;
     int motorDutyPct = 50;
+
+    // --- High level settings ---
+    float obstacleThreshold = 0.8f; // [m]
+    float warningThreshold = 1.2f;  // [m]
   };
 
 } // namespace lidar

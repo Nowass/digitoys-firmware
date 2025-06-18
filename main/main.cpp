@@ -1,125 +1,21 @@
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "esp_log.h"
-#include "esp_system.h"
+// app_main.cpp
+#include <esp_log.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include "adas_pwm_driver.hpp"
 #include "LiDARConfig.hpp"
 #include "uart-hal.hpp"
 #include "motor-hal.hpp"
 #include "frame-parser.hpp"
 
+static const char *TAG = "APP_MAIN";
 #define BUF_SIZE 512
-
-static const char *TAG = "HelloWorld";
 
 using namespace lidar;
 
-void hello_task(void *pvParameter)
+extern "C" __attribute__((optimize("O0"))) void app_main()
 {
-    while (1)
-    {
-        // Get the current time since startup in milliseconds
-        uint32_t uptime = esp_log_timestamp();
-
-        ESP_LOGI(TAG, "Hello, World! System uptime: %lu ms", uptime);
-        vTaskDelay(2000 / portTICK_PERIOD_MS); // Delay for 2000 ms (2 seconds)
-    }
-}
-
-__attribute__((optimize("O0"))) void analyzeObstacles(const std::vector<lidar::PointData> &frame,
-                                                      float crashThreshold, float obstacleThreshold, float noObstacleThreshold)
-{
-    float sumLeft = 0, sumFront = 0, sumRight = 0;
-    int countLeft = 0, countFront = 0, countRight = 0;
-    static bool printedOnce = false;
-
-    bool crashDetected = false;
-    float closestDist = std::numeric_limits<float>::max();
-
-    for (const auto &pt : frame)
-    {
-        float angle = pt.angle;
-        float dist = pt.distance / 1000.0f; // mm → m
-
-        if (pt.intensity < 100)
-            continue;
-
-        if (!(angle < 12.0f || angle > 347.0f))
-            continue;
-
-        if (dist <= crashThreshold)
-        {
-            crashDetected = true;
-        }
-
-        if (dist < closestDist)
-            closestDist = dist;
-
-        if (angle >= 360.0f)
-            angle -= 360.0f;
-        if (angle < 0.0f)
-            angle += 360.0f;
-
-        if ((angle >= 347.0f && angle <= 356.0f))
-        {
-            sumLeft += dist;
-            countLeft++;
-        }
-        else if ((angle > 356.0f && angle < 360.0f) || (angle >= 0.0f && angle <= 4.0f))
-        {
-            sumFront += dist;
-            countFront++;
-        }
-        else if ((angle > 4.0f && angle <= 12.0f))
-        {
-            sumRight += dist;
-            countRight++;
-        }
-    }
-
-    if (crashDetected)
-    {
-        ESP_LOGW("OBSTACLE", "⚠️ CRASH DETECTED! Obstacle too close!");
-        printedOnce = false;
-        return;
-    }
-
-    if (closestDist <= obstacleThreshold)
-    {
-        bool printed = false;
-
-        if (countLeft > 0 && (sumLeft / countLeft) <= obstacleThreshold)
-        {
-            ESP_LOGI("OBSTACLE", "Obstacle LEFT at %.2f m", sumLeft / countLeft);
-            printed = true;
-        }
-        if (countFront > 0 && (sumFront / countFront) <= obstacleThreshold)
-        {
-            ESP_LOGI("OBSTACLE", "Obstacle FRONT at %.2f m", sumFront / countFront);
-            printed = true;
-        }
-        if (countRight > 0 && (sumRight / countRight) <= obstacleThreshold)
-        {
-            ESP_LOGI("OBSTACLE", "Obstacle RIGHT at %.2f m", sumRight / countRight);
-            printed = true;
-        }
-
-        if (printed)
-            printedOnce = false;
-    }
-    else if (closestDist >= noObstacleThreshold)
-    {
-        if (!printedOnce)
-        {
-            ESP_LOGI("OBSTACLE", "✅ No obstacle in range");
-            printedOnce = true;
-        }
-    }
-}
-
-extern "C" void app_main(void)
-{
-    static const char *TAG = "APP_MAIN";
-
+    // --- LiDAR setup ---
     UART_HAL uart_hal;
     Motor_HAL motor;
     FramePraser parser;
@@ -136,59 +32,81 @@ extern "C" void app_main(void)
         .motorChannel = LEDC_CHANNEL_0,
         .motorFreqHz = 50000,
         .motorDutyPct = 50};
+    ESP_ERROR_CHECK(uart_hal.init(cfg));
+    ESP_ERROR_CHECK(motor.init(cfg));
+    ESP_ERROR_CHECK(motor.start());
+    ESP_LOGI(TAG, "LiDAR motor started");
 
-    esp_err_t err = uart_hal.init(cfg);
-    if (err != ESP_OK)
-    {
-        ESP_LOGE(TAG, "UART_HAL init failed");
-        return;
-    }
+    // --- PWM passthrough driver (throttle only) ---
+    adas::PwmChannelConfig throttle_cfg = {
+        .rx_gpio = GPIO_NUM_18,
+        .tx_gpio = GPIO_NUM_19,
+        .ledc_channel = LEDC_CHANNEL_0,
+        .ledc_timer = LEDC_TIMER_0,
+        .pwm_freq_hz = 62};
+    std::vector<adas::PwmChannelConfig> configs = {throttle_cfg};
+    adas::PwmDriver pwm_driver{configs};
+    ESP_ERROR_CHECK(pwm_driver.initialize());
+    ESP_LOGI(TAG, "PWM passthrough running");
 
-    ESP_LOGI(TAG, "UART_HAL initialized successfully");
+    // Control flags
+    bool obstacle_state = false;
+    static constexpr float BRAKE = 0.12f;
+    static constexpr float CRASH_THRESHOLD = 0.3f;
+    static constexpr float OBSTACLE_THRESHOLD = 0.8f;
+    static constexpr float NO_OBSTACLE_THRESHOLD = 1.2f;
 
-    // Initialize motor with 50 kHz PWM and 50% duty
-    err = motor.init(cfg);
-    if (err != ESP_OK)
-    {
-        ESP_LOGE(TAG, "Motor init failed");
-        return;
-    }
-
-    // Start the motor
-    err = motor.start();
-    if (err != ESP_OK)
-    {
-        ESP_LOGE(TAG, "Motor start failed");
-        return;
-    }
-
-    ESP_LOGI(TAG, "Motor started");
-
+    // Main loop: read LiDAR + control passthrough or brake
     while (true)
     {
-        // Blocking read from UART (you may want to use ringbuffer for DMA)
         int len = uart_read_bytes(UART_NUM_1, data, BUF_SIZE, pdMS_TO_TICKS(20));
         if (len > 0)
         {
             parser.CommReadCallback((const char *)data, len);
-
             if (parser.IsFrameReady())
             {
-                Points2D frame = parser.GetLaserScanData();
+                // Simplest: check closest distance
+                auto frame = parser.GetLaserScanData();
                 parser.ResetFrameReady();
 
-                // Example thresholds: crash @ 0.3m, warn @ 0.8m, ok above 1.2m
-                analyzeObstacles(frame, 0.3f, 0.8f, 1.2f);
+                float closest = std::numeric_limits<float>::infinity();
+                for (auto &pt : frame)
+                {
+                    float angle = pt.angle;
 
-                // Use the frame (e.g., find nearest obstacle, draw scan, etc.)
-                // for (const auto &pt : frame)
-                // {
-                //     if (!(pt.angle < cfg.angleMinDeg || pt.angle > cfg.angleMaxDeg))
-                //         continue;
+                    if (pt.intensity < 100)
+                        continue;
 
-                //     ESP_LOGI(TAG, "Angle: %.1f°, Distance: %.2f m, Confidence: %d",
-                //              pt.angle, pt.distance / 1000.0, pt.intensity);
-                // }
+                    if (!(angle < 12.0f || angle > 347.0f))
+                        continue;
+
+                    if (angle >= 360.0f)
+                        angle -= 360.0f;
+                    if (angle < 0.0f)
+                        angle += 360.0f;
+
+                    float d = pt.distance / 1000.0f;
+                    if (d < closest)
+                        closest = d;
+                }
+
+                bool obstacle = (closest <= OBSTACLE_THRESHOLD);
+
+                if (obstacle && !obstacle_state)
+                {
+                    // obstacle just detected: stop passthrough & brake
+                    obstacle_state = true;
+                    ESP_LOGW(TAG, "Obstacle! Applying brake duty");
+                    ESP_ERROR_CHECK(pwm_driver.pausePassthrough(0));
+                    pwm_driver.setDuty(0, BRAKE);
+                }
+                else if (!obstacle && obstacle_state)
+                {
+                    // obstacle cleared: resume passthrough
+                    obstacle_state = false;
+                    ESP_LOGI(TAG, "Obstacle cleared. Resuming passthrough");
+                    ESP_ERROR_CHECK(pwm_driver.resumePassthrough(0));
+                }
             }
         }
     }

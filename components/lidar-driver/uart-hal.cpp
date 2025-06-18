@@ -1,4 +1,8 @@
 #include "uart-hal.hpp"
+/**
+ * @file uart-hal.cpp
+ * @brief UART helper functions for LiDAR communication.
+ */
 #include <esp_log.h>
 #include <driver/gpio.h>
 

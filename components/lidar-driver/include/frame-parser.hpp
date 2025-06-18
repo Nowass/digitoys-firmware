@@ -1,3 +1,8 @@
+#pragma once
+/**
+ * @file frame-parser.hpp
+ * @brief Parses raw LiDAR packets into usable point data frames.
+ */
 #include <chrono>
 
 #include "pointdata.hpp"
@@ -30,6 +35,7 @@ namespace lidar
         uint8_t crc8;
     } LiDARFrameTypeDef;
 
+    /// Parses raw serial packets into calibrated scan data.
     class FramePraser
     {
     public:
@@ -37,18 +43,21 @@ namespace lidar
 
         FramePraser();
         ~FramePraser();
-        // get Lidar spin speed (Hz)
+        /// Get LiDAR spin speed in Hz
         double GetSpeed(void);
-        // get lidar spind speed (degree per second) origin
+        /// Get raw rotation speed value reported by sensor
         uint16_t GetSpeedOrigin(void);
-        // get time stamp of the packet
+        /// Get timestamp of last packet in milliseconds
         uint16_t GetTimestamp(void);
-        // Get lidar data frame ready flag
+        /// True if a complete frame has been assembled
         bool IsFrameReady(void);
-        // Lidar data frame readiness flag reset
+        /// Reset frame ready flag
         void ResetFrameReady(void);
+        /// Manually set frame ready flag
         void SetFrameReady(void);
+        /// Feed raw bytes from UART
         void CommReadCallback(const char *byte, size_t len);
+        /// Retrieve the most recent assembled scan data
         Points2D GetLaserScanData(void);
 
     private:
@@ -61,11 +70,13 @@ namespace lidar
         std::mutex mutex_lock1_;
         std::mutex mutex_lock2_;
 
-        // parse single packet
+        /// Parse a single incoming byte
         bool AnalysisOne(uint8_t byte);
+        /// Parse a buffer of bytes
         bool Parse(const uint8_t *data, long len);
-        // combine stantard data into data frames and calibrate
+        /// Combine packets into a calibrated frame
         bool AssemblePacket();
+        /// Replace stored scan data
         void SetLaserScanData(Points2D &src);
     };
 

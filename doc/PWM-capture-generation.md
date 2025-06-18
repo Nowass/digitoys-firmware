@@ -1,68 +1,179 @@
-Perfect — in that case, you're absolutely on the right track with **RMT RX + LEDC**. Let's reframe it in terms of your final goal:
+## 🏎️ PWM Signal Interceptor
 
----
+### 🎯 Final Goal
 
-## 🏎️ Final Goal: Override RC PWM Signals
+Build an **intelligent signal interceptor** on ESP32-C6 that:
 
-You're essentially trying to build an **"intelligent signal interceptor"**, where:
+* **Accurately reads** standard RC PWM inputs (1–2 ms pulses at \~62 Hz) via RMT peripheral.
+* **Decides** in real time whether to forward the raw signal or override it (e.g. in case of obstacles).
+* **Generates** the appropriate PWM output for servos/ESCs on any GPIO via LEDC.
 
-* You **read RC PWM inputs** (e.g. throttle and steering — usually 1ms to 2ms pulses at \~50Hz),
-* Then decide (based on obstacles, ADAS logic, etc.) whether to:
+### ✅ Why RMT RX + LEDC
 
-  * **forward the signal unmodified**, or
-  * **modify/block it**, and
-  * **generate the desired output** toward the motor controller or steering servo.
+| Feature            | Benefit                                                           |
+| ------------------ | ----------------------------------------------------------------- |
+| ⏱️ **RMT RX**      | Hardware captures pulse widths without busy‐polling.              |
+| 📤 **LEDC**        | High‐resolution PWM generation on flexible pins.                  |
+| 🧠 **Logic**       | C++ layer sits between RMT→LEDC to inspect/modify duty cycles.    |
+| 🔁 **Low Latency** | Sub‐ms reaction (<200 µs) from input edge to output update.       |
+| 💡 **Scalable**    | Adding LiDAR or other sensors simply augments the decision stage. |
 
----
+### 📐 RC PWM Specs
 
-## ✅ Why RMT RX + LEDC is Ideal Here
+* **Pulse width:** 1.0 – 2.0 ms (1.5 ms neutral)
+* **Period:** \~16 ms (62 Hz)
+* **Voltage:** 3.3 V logic (ensure level compatibility)
 
-| Feature          | Why It Matters                                                            |
-| ---------------- | ------------------------------------------------------------------------- |
-| ⏱️ RMT RX        | Accurately measures input PWM pulses without CPU-intensive polling        |
-| 📤 LEDC          | Can generate clean, servo-grade PWM signals on any GPIO                   |
-| 🧠 Separation    | Your logic can sit in between RMT and LEDC to inspect/modify signal       |
-| 🔁 Low Latency   | Minimal delay in mirroring signals (sub-ms, typically <200 µs achievable) |
-| 💡 Expandability | You can later plug in LiDAR/IR sensors to override the signal             |
-
----
-
-## 🧠 Architectural Sketch (ADAS-aware RC PWM Passthrough)
+###  End-to-end architecture
 
 ```mermaid
 flowchart TD
-    A["📥 PWM IN (Steering/Throttle)"] -->|RMT RX| B[📏 Decode Pulse Widths]
-    B --> C[🧠 Logic: Is It Safe to Pass?]
-    C -->|Yes| D[📤 Generate PWM via LEDC]
-    C -->|No, Override| E[⚠️ Modify or Hold Signal] --> D
-    D --> F["🔧 PWM OUT to Servo/ESC"]
+    subgraph ESP32-C6 DevKitC-1
+        %% Input paths
+        RC_RX["📥 RMT RX (RmtInput)"] --> Passthrough["PwmPassthroughChannel"]
+        LiDAR["📡 LiDAR Driver (UART DMA)"] --> LidarTask["🔄 LidarTask"]
+        
+        %% Control logic
+        LidarTask --> Control["🧠 ControlTask"]
+        Passthrough -. PassthroughDuty .-> Control        
+        Control -->|pass-through / override| Passthrough
+        
+        %% Output path
+        Passthrough --> LEDC["📤 LEDC Output (LedcOutput)"]
+        LEDC --> ESC["⚡ ESC / Servo"]
+    end
+
 ```
 
 ---
 
-## 📐 RC Servo Signal Specs (Usually)
+## 🏗️ C++ Driver Architecture
 
-* Pulse Width: **1.0–2.0 ms** (1.5 ms = center/neutral)
-* Repetition Rate: **50 Hz** (20 ms period)
-* Voltage: **3.3V or 5V** (ESP32 is 3.3V tolerant — ensure level compatibility!)
+```mermaid
+classDiagram
+    class PwmDriver {
+        +initialize()
+        +shutdown()
+        +pausePassthrough(idx)
+        +resumePassthrough(idx)
+        +setDuty(idx, duty)
+    }
+    class PwmPassthroughChannel {
+        -RmtInput input
+        -LedcOutput output
+        +start()
+        +stop()
+        +setDuty(d)
+    }
+    class RmtInput {
+        +start(cb)
+        +stop()
+    }
+    class LedcOutput {
+        +setDuty(d)
+    }
+    PwmDriver "1" o-- "n" PwmPassthroughChannel
+    PwmPassthroughChannel *-- RmtInput
+    PwmPassthroughChannel *-- LedcOutput
+
+```
+
+
+```cpp
+namespace adas {
+
+struct PwmChannelConfig {
+    gpio_num_t       rx_gpio;      // RMT input pin
+    gpio_num_t       tx_gpio;      // LEDC output pin
+    ledc_channel_t   ledc_channel; // LEDC channel (0..7)
+    ledc_timer_t     ledc_timer;   // LEDC timer (0..3)
+    uint32_t         pwm_freq_hz;  // e.g. 50–62 Hz
+};
+
+class RmtInput {
+public:
+    explicit RmtInput(const PwmChannelConfig& cfg);
+    esp_err_t start(std::function<void(float)> duty_cb);
+    esp_err_t stop();
+};
+
+class LedcOutput {
+public:
+    explicit LedcOutput(const PwmChannelConfig& cfg);
+    esp_err_t setDuty(float duty_norm);
+};
+
+class PwmPassthroughChannel {
+public:
+    explicit PwmPassthroughChannel(const PwmChannelConfig& cfg);
+    esp_err_t start();           // launch RMT→LEDC task
+    esp_err_t stop();            // stop RMT, leave LEDC configured
+    esp_err_t setDuty(float d);  // override LEDC duty
+};
+
+class PwmDriver {
+public:
+    explicit PwmDriver(std::vector<PwmChannelConfig> configs);
+    esp_err_t initialize();      // config & start all channels
+    esp_err_t shutdown();        // stop all RMT tasks
+    esp_err_t pausePassthrough(size_t idx);
+    esp_err_t resumePassthrough(size_t idx);
+    esp_err_t setDuty(size_t idx, float duty_norm);
+};
+
+}
+```
+
+— All APIs return `esp_err_t` (use `ESP_ERROR_CHECK` at call sites).
+
+### Implementation Highlights
+
+* **`RmtInput`**
+
+  * Wraps `rmt_new_rx_channel` + ISR callback → FreeRTOS task.
+  * Measures `duration0` from `rmt_rx_done_event_data_t`, normalizes to \[0..1], and invokes user callback.
+
+* **`LedcOutput`**
+
+  * Configures `ledc_timer_config_t` (bit depth 15) and `ledc_channel_config_t`.
+  * `setDuty()` clamps input, computes ticks = `duty_norm * ((1<<15)-1)` and calls `ledc_set_duty` + `ledc_update_duty`.
+
+* **`PwmPassthroughChannel`**
+
+  * Composes one `RmtInput` + one `LedcOutput`.
+  * `start()` wires `RmtInput` callback to `LedcOutput::setDuty()`.
+
+* **`PwmDriver`**
+
+  * Holds `N` channels in a vector.
+  * `initialize()` → `start()` each channel; `shutdown()` → `stop()`.
+  * `pausePassthrough(idx)`/`resumePassthrough(idx)` stop/restart only the RMT input; LEDC stays configured.
+  * `setDuty(idx, d)` lets control logic override duty without touching RMT.
 
 ---
 
-## 💡 Tips for Real-World Success
+## 🚀 Integration Snippet
 
-* **Debounce + filter** noisy RMT samples (servo signals can jitter).
-* Add **a watchdog**: if no input signal for X ms, go to safe state.
-* Later, you can add **LiDAR logic** to dynamically change steering/throttle signals.
-* LEDC can use **duty-based representation** (`duty = pulseWidth_us * 2^bit_depth / period_us`).
+```cpp
+extern "C" void app_main() {
+    // 1) Configure one or two channels
+    std::vector<adas::PwmChannelConfig> cfg = {
+      { GPIO_NUM_18, GPIO_NUM_19, LEDC_CH0, LEDC_TIMER0, 62 },  // throttle
+      // steering: { GPIO_NUM_4, GPIO_NUM_5, LEDC_CH1, LEDC_TIMER1, 62 }
+    };
 
----
+    // 2) Instantiate driver
+    adas::PwmDriver driver{cfg};
+    ESP_ERROR_CHECK(driver.initialize());
 
-## ✅ Action Plan
-
-Shall I go ahead and:
-
-* 🧪 Generate the working code template: RMT RX on input GPIO, LEDC on output GPIO?
-* ⚙️ Parameterize it for two channels: **Throttle** and **Steering**?
-* 🔄 Include FreeRTOS task to forward RMT → LEDC?
-
-Let’s get your signal passthrough up and running first — then we’ll plug in the “brains” of the car later.
+    // 3) In ControlTask or loop:
+    float normalizedBrake = /* map 6% duty to normalized */;
+    bool obstacle = /* from LiDAR */;
+    if (obstacle) {
+      ESP_ERROR_CHECK(driver.pausePassthrough(0));
+      driver.setDuty(0, normalizedBrake);
+    } else {
+      ESP_ERROR_CHECK(driver.resumePassthrough(0));
+    }
+}
+```

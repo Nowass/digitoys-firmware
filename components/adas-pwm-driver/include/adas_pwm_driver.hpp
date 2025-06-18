@@ -84,10 +84,19 @@ namespace adas
         esp_err_t stop();
         esp_err_t setDuty(float duty);
 
+        /// Return last duty captured by RMT input (absolute duty ratio).
+        float lastDuty() const { return last_duty_; }
+
+        /// Check if throttle is pressed outside neutral range.
+        /// @param center duty ratio considered neutral (default 9%)
+        /// @param range width of neutral band (default 1%)
+        bool throttlePressed(float center = 0.09f, float range = 0.01f) const;
+
     private:
         PwmChannelConfig cfg_;
         std::unique_ptr<RmtInput> input_;
         std::unique_ptr<LedcOutput> output_;
+        float last_duty_ = 0.0f;
     };
 
     class PwmDriver
@@ -115,6 +124,16 @@ namespace adas
             if (idx >= channels_.size())
                 return ESP_ERR_INVALID_ARG;
             return channels_[idx]->start(); // leaves LEDC untouched
+        }
+
+        /// Return true if throttle channel idx is pressed outside neutral band
+        bool isThrottlePressed(size_t idx,
+                              float center = 0.09f,
+                              float range = 0.01f) const
+        {
+            if (idx >= channels_.size())
+                return false;
+            return channels_[idx]->throttlePressed(center, range);
         }
 
     private:

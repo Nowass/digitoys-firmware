@@ -157,7 +157,10 @@ namespace adas
     esp_err_t PwmPassthroughChannel::start()
     {
         return input_->start([this](float duty)
-                             { output_->setDuty(duty); });
+                             {
+                                 last_duty_ = duty;
+                                 output_->setDuty(duty);
+                             });
     }
 
     esp_err_t PwmPassthroughChannel::stop()
@@ -168,6 +171,13 @@ namespace adas
     esp_err_t PwmPassthroughChannel::setDuty(float duty)
     {
         return output_->setDuty(duty);
+    }
+
+    bool PwmPassthroughChannel::throttlePressed(float center, float range) const
+    {
+        float lower = center - range * 0.5f;
+        float upper = center + range * 0.5f;
+        return last_duty_ < lower || last_duty_ > upper;
     }
 
     // ------------ PwmDriver ------------

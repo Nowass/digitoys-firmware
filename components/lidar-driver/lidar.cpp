@@ -1,3 +1,7 @@
+/**
+* @file lidar.cpp
+* @brief Implementation of the high level LiDAR task.
+*/
 #include "LiDAR.hpp"
 #include <esp_log.h>
 #include <limits>

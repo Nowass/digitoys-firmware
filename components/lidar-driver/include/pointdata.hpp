@@ -1,3 +1,7 @@
+/**
+ * @file pointdata.hpp
+ * @brief Basic structures representing LiDAR measurement points.
+ */
 #ifndef _POINT_DATA_HPP_
 #define _POINT_DATA_HPP_
 
@@ -12,12 +16,13 @@ namespace lidar
 #define ANGLE_TO_RADIAN(angle) ((angle) * 3141.59 / 180000)
 #define RADIAN_TO_ANGLED(angle) ((angle) * 180000 / 3141.59)
 
+  /// Single point measurement from the LiDAR
   struct PointData
   {
     // Polar coordinate representation
-    float angle;       // Angle ranges from 0 to 359 degrees
-    uint16_t distance; // Distance is measured in millimeters
-    uint8_t intensity; // Intensity is 0 to 255
+    float angle;       ///< angle in degrees [0,360)
+    uint16_t distance; ///< distance in millimetres
+    uint8_t intensity; ///< return signal strength
     // Cartesian coordinate representation
     double x;
     double y;

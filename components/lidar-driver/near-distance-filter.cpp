@@ -1,4 +1,8 @@
-﻿#include "near-distance-filter.hpp"
+#include "near-distance-filter.hpp"
+/**
+ * @file near-distance-filter.cpp
+ * @brief Implementation of LiDAR near distance filtering algorithm.
+ */
 #include <algorithm>
 #include <cmath>
 #include <ranges>

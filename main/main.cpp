@@ -33,11 +33,8 @@ struct RmtTaskParams
     QueueHandle_t queue;
 };
 
-// This is our FreeRTOS task (no captures!)
-// It pulls events from the queue, logs them, and re-arms the RMT
 static void rmt_rx_task(void *arg)
 {
-    ESP_LOGI(TAG, "[*]====> ENTER THE TASK");
     auto *p = static_cast<RmtTaskParams *>(arg);
     rmt_rx_done_event_data_t evt;
     float duty = 0.0;
@@ -45,22 +42,15 @@ static void rmt_rx_task(void *arg)
     uint32_t max_ticks = (1 << LEDC_TIMER_15_BIT) - 1;
     while (xQueueReceive(p->queue, &evt, portMAX_DELAY) == pdTRUE)
     {
-        ESP_LOGI(TAG, "Got %d symbols", evt.num_symbols);
-        for (int i = 0; i < evt.num_symbols; i++)
-        {
-            auto &s = evt.received_symbols[i];
-            duty = (s.duration0 / 16129.0);
-            duty_ticks = (uint32_t)(duty * max_ticks + 0.5f);
-        }
+        auto &s = evt.received_symbols[0];
+        duty = (s.duration0 / 16129.0);
+        duty_ticks = (uint32_t)(duty * max_ticks + 0.5f);
 
         ESP_ERROR_CHECK(ledc_set_duty(LEDC_LOW_SPEED_MODE,
                                       LEDC_CHANNEL_0,
                                       duty_ticks));
         ESP_ERROR_CHECK(ledc_update_duty(LEDC_LOW_SPEED_MODE,
                                          LEDC_CHANNEL_0));
-
-        ESP_LOGI(TAG, "Duty updated: %f%%", duty);
-        ESP_LOGI(TAG, "Duty ticks: %f%%", duty_ticks);
 
         // re-arm for next frame
         ESP_ERROR_CHECK(rmt_receive(

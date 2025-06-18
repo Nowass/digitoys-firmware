@@ -1,4 +1,7 @@
-// adas_logic.hpp
+/**
+ * @file adas_logic.hpp
+ * @brief Helper functions for simple ADAS behaviours.
+ */
 #pragma once
 
 #include <utility>

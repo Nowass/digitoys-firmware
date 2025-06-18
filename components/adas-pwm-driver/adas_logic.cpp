@@ -1,11 +1,14 @@
-// adas_logic.cpp
+/**
+ * @file adas_logic.cpp
+ * @brief Simple ADAS helper functions.
+ */
 #include "adas_logic.hpp"
 #include <algorithm>
 
 namespace adas
 {
 
-    // Distances for braking
+    // Minimum distance at which braking should be triggered
     static constexpr float MIN_SAFE_DISTANCE = 0.5f; // meters
 
     std::pair<float, float> compute_adas_commands(const ObstacleData &obs,

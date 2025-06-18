@@ -1,4 +1,8 @@
 #include "motor-hal.hpp"
+/**
+ * @file motor-hal.cpp
+ * @brief Motor HAL controlling LiDAR spin speed using LEDC.
+ */
 #include <driver/gpio.h>
 #include <driver/ledc.h>
 #include <esp_log.h>

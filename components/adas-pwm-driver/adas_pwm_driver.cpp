@@ -1,4 +1,7 @@
-// adas_pwm_driver.cpp
+/**
+ * @file adas_pwm_driver.cpp
+ * @brief Implementation of the PWM passthrough driver.
+ */
 #include "adas_pwm_driver.hpp"
 
 namespace adas
@@ -95,10 +98,11 @@ namespace adas
     void RmtInput::taskLoop()
     {
         rmt_rx_done_event_data_t evt;
-        uint32_t max_ticks = (1 << LEDC_TIMER_15_BIT) - 1;
         while (xQueueReceive(queue_, &evt, portMAX_DELAY))
         {
             auto &s = evt.received_symbols[0];
+            // Convert captured high time (1 MHz resolution) back to a duty ratio
+            // for a ~62 Hz PWM signal. One period is ~16,129 ticks.
             float duty = s.duration0 / 16129.0f;
             callback_(duty);
             // re-arm

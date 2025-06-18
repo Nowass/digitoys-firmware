@@ -1,4 +1,8 @@
 #include "frame-parser.hpp"
+/**
+ * @file frame-parser.cpp
+ * @brief Implementation of LiDAR packet parser and frame assembly.
+ */
 
 namespace lidar
 {

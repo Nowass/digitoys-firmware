@@ -1,3 +1,7 @@
+/**
+ * @file motor-hal.hpp
+ * @brief Simple PWM based control for the LiDAR spin motor.
+ */
 #pragma once
 
 #include "LiDARConfig.hpp"
@@ -12,9 +16,14 @@ namespace lidar
     Motor_HAL() = default;
     ~Motor_HAL();
 
+    /// Configure LEDC for the motor
+    /// @param cfg configuration structure
     esp_err_t init(const LiDARConfig &cfg);
+    /// Start spinning the motor
     esp_err_t start();
+    /// Stop the motor
     esp_err_t stop();
+    /// Release LEDC resources
     void deinit();
 
   private:

@@ -16,7 +16,7 @@ extern "C" void app_main()
         .tx_gpio = GPIO_NUM_19,
         .ledc_channel = LEDC_CHANNEL_0,
         .ledc_timer = LEDC_TIMER_0,
-        .pwm_freq_hz = 50};
+        .pwm_freq_hz = 62};
     std::vector<adas::PwmChannelConfig> configs;
     configs.push_back(throttle_cfg);
 

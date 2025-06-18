@@ -23,7 +23,7 @@ namespace adas
         gpio_num_t tx_gpio;
         ledc_channel_t ledc_channel;
         ledc_timer_t ledc_timer;
-        uint32_t pwm_freq_hz = 50;
+        uint32_t pwm_freq_hz = 62;
     };
 
     class IPwmChannel

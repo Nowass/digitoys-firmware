@@ -36,7 +36,7 @@ static void ControlTask(void *pv)
                 obstacle_state = true;
                 ESP_LOGW(TAG, "Obstacle! Applying brake duty");
                 driver.pausePassthrough(0);
-                driver.setDuty(0, BRAKE);
+                driver.setDuty(0, 0.09f);
             }
             else if (!info.obstacle && obstacle_state)
             {

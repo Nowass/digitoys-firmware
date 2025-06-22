@@ -43,7 +43,7 @@ Make sure the following are installed on your machine:
 1. **Clone this project**:
 
    ```bash
-   git clone https://gitlab.dq.skoda.vwg/dqd/dqda/digitoys/digitoy-firmware.git
+   git clone https://github.com/Nowass/digitoys-firmware
    cd digitoy-firmware
    ```
 

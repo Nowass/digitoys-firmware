@@ -159,8 +159,7 @@ namespace adas
         return input_->start([this](float duty)
                              {
                                  last_duty_ = duty;
-                                 output_->setDuty(duty);
-                             });
+                                 output_->setDuty(duty); });
     }
 
     esp_err_t PwmPassthroughChannel::stop()
@@ -215,13 +214,6 @@ namespace adas
             return ESP_ERR_INVALID_ARG;
         }
         return channels_[idx]->setDuty(duty);
-    }
-
-    float PwmDriver::lastDuty(size_t idx) const
-    {
-        if (idx >= channels_.size())
-            return 0.0f;
-        return channels_[idx]->lastDuty();
     }
 
 } // namespace adas

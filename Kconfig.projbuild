@@ -1,0 +1,8 @@
+menu "Monitor Configuration"
+    config MONITOR_WIFI_SSID
+        string "WiFi SSID"
+        default "your_ssid"
+    config MONITOR_WIFI_PASS
+        string "WiFi Password"
+        default "your_password"
+endmenu

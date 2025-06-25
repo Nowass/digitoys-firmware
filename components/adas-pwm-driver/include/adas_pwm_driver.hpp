@@ -126,6 +126,14 @@ namespace adas
             return channels_[idx]->start(); // leaves LEDC untouched
         }
 
+        /// Return last duty captured for channel idx
+        float lastDuty(size_t idx) const
+        {
+            if (idx >= channels_.size())
+                return 0.0f;
+            return channels_[idx]->lastDuty();
+        }
+
         /// Return true if throttle channel idx is pressed outside neutral band
         bool isThrottlePressed(size_t idx,
                               float center = 0.09f,

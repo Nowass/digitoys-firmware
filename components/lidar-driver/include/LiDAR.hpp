@@ -8,6 +8,7 @@
 #include <freertos/task.h>
 #include <esp_err.h>
 #include <mutex>
+#include <limits>
 
 namespace lidar
 {
@@ -16,7 +17,7 @@ namespace lidar
     {
         bool obstacle = false;
         bool warning = false;
-        float distance;
+        float distance = std::numeric_limits<float>::infinity();
     };
 
     class LiDAR

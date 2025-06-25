@@ -71,7 +71,7 @@ namespace lidar
                 return angle >= cfg_.angleMinDeg && angle <= cfg_.angleMaxDeg;
             return angle >= cfg_.angleMinDeg || angle <= cfg_.angleMaxDeg;
         };
-        float d;
+        float d = std::numeric_limits<float>::infinity();
 
         for (const auto &pt : frame)
         {
@@ -87,7 +87,7 @@ namespace lidar
         ObstacleInfo out{};
         out.obstacle = closest <= cfg_.obstacleThreshold;
         out.warning = !out.obstacle && closest <= cfg_.warningThreshold;
-        out.distance = d;
+        out.distance = closest;
         return out;
     }
 

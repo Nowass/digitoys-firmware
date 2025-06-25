@@ -24,7 +24,7 @@ static void ControlTask(void *pv)
     adas::PwmDriver &driver = *ctx->pwm_driver;
 
     bool obstacle_state = false;
-    constexpr float BRAKE = 0.12f;
+    constexpr float BRAKE = 0.06f;
 
     while (true)
     {
@@ -36,7 +36,7 @@ static void ControlTask(void *pv)
                 obstacle_state = true;
                 ESP_LOGW(TAG, "Obstacle! Applying brake duty");
                 driver.pausePassthrough(0);
-                driver.setDuty(0, 0.09f);
+                driver.setDuty(0, BRAKE);
             }
             else if (!info.obstacle && obstacle_state)
             {

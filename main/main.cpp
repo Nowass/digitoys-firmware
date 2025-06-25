@@ -5,6 +5,7 @@
 #include "adas_pwm_driver.hpp"
 #include "LiDARConfig.hpp"
 #include "LiDAR.hpp"
+#include <limits>
 
 static const char *TAG = "APP_MAIN";
 using namespace lidar;
@@ -24,25 +25,62 @@ static void ControlTask(void *pv)
     adas::PwmDriver &driver = *ctx->pwm_driver;
 
     bool obstacle_state = false;
-    constexpr float BRAKE = 0.06f;
+    bool warning_state = false;
+    float last_distance = std::numeric_limits<float>::infinity();
+    float slowdown_duty = 0.0f;
+
+    constexpr float BRAKE = 0.06f;      // full brake duty
+    constexpr float ZERO_SPEED = 0.09f; // neutral duty
+    constexpr float DUTY_STEP = 0.005f;
 
     while (true)
     {
         auto info = lidar.getObstacleInfo();
         if (driver.isThrottlePressed(0))
         {
-            if (info.obstacle && !obstacle_state)
+            if (info.obstacle)
             {
-                obstacle_state = true;
-                ESP_LOGW(TAG, "Obstacle! Applying brake duty");
-                driver.pausePassthrough(0);
-                driver.setDuty(0, BRAKE);
+                if (!obstacle_state)
+                {
+                    obstacle_state = true;
+                    warning_state = false;
+                    ESP_LOGW(TAG, "Obstacle! Applying brake duty");
+                    driver.pausePassthrough(0);
+                    driver.setDuty(0, BRAKE);
+                }
             }
-            else if (!info.obstacle && obstacle_state)
+            else if (info.warning)
             {
                 obstacle_state = false;
-                ESP_LOGI(TAG, "Obstacle cleared. Resuming passthrough");
-                driver.resumePassthrough(0);
+                if (!warning_state)
+                {
+                    warning_state = true;
+                    slowdown_duty = driver.lastDuty(0);
+                    last_distance = info.distance;
+                    driver.pausePassthrough(0);
+                    ESP_LOGI(TAG, "Warning detected. Starting slowdown");
+                }
+                else
+                {
+                    if (info.distance < last_distance && slowdown_duty > ZERO_SPEED)
+                    {
+                        slowdown_duty -= DUTY_STEP;
+                        if (slowdown_duty < ZERO_SPEED)
+                            slowdown_duty = ZERO_SPEED;
+                        driver.setDuty(0, slowdown_duty);
+                    }
+                    last_distance = info.distance;
+                }
+            }
+            else
+            {
+                if (obstacle_state || warning_state)
+                {
+                    obstacle_state = false;
+                    warning_state = false;
+                    ESP_LOGI(TAG, "Path clear. Resuming passthrough");
+                    driver.resumePassthrough(0);
+                }
             }
         }
 

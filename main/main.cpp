@@ -5,6 +5,7 @@
 #include "adas_pwm_driver.hpp"
 #include "LiDARConfig.hpp"
 #include "LiDAR.hpp"
+#include "Monitor.hpp"
 #include <limits>
 
 static const char *TAG = "APP_MAIN";
@@ -15,6 +16,7 @@ struct ControlContext
 {
     lidar::LiDAR *lidar;
     adas::PwmDriver *pwm_driver;
+    monitor::Monitor *mon;
 };
 
 // ControlTask: reads LiDAR frames and switches passthrough vs. brake
@@ -36,6 +38,7 @@ static void ControlTask(void *pv)
     while (true)
     {
         auto info = lidar.getObstacleInfo();
+        ctx->mon->updateTelemetry(info.obstacle, info.distance, driver.lastDuty(0));
         if (driver.isThrottlePressed(0))
         {
             if (info.obstacle)
@@ -114,8 +117,13 @@ extern "C" void app_main()
     ESP_ERROR_CHECK(pwm_driver.initialize());
     ESP_LOGI(TAG, "PWM passthrough running");
 
+    // --- Telemetry monitor ---
+    static monitor::Monitor mon;
+    ESP_ERROR_CHECK(mon.start());
+    ESP_LOGI(TAG, "Monitor started");
+
     // --- Launch ControlTask ---
-    static ControlContext ctx = {&lidar, &pwm_driver};
+    static ControlContext ctx = {&lidar, &pwm_driver, &mon};
     BaseType_t rc = xTaskCreate(
         ControlTask, "ControlTask", 8192,
         &ctx, tskIDLE_PRIORITY + 2, nullptr);

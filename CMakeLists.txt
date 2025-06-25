@@ -10,6 +10,7 @@ set(EXTRA_COMPONENT_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/components
     ${CMAKE_CURRENT_SOURCE_DIR}/components/lidar-driver
     ${CMAKE_CURRENT_SOURCE_DIR}/components/adas-pwm-driver
+    ${CMAKE_CURRENT_SOURCE_DIR}/components/monitor
 )
 
 project(digitoys-firmware)

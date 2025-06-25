@@ -24,6 +24,7 @@ namespace monitor
         esp_err_t init_wifi();
         esp_err_t start_http_server();
         static esp_err_t telemetry_get_handler(httpd_req_t *req);
+        static esp_err_t index_get_handler(httpd_req_t *req);
 
         static Monitor *instance_;
         Telemetry data_{};

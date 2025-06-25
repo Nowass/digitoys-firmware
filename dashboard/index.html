@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Digitoys Telemetry</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 2em; }
+        #status { font-size: 1.2em; }
+    </style>
+</head>
+<body>
+    <h1>Digitoys Telemetry</h1>
+    <div id="status">Loading...</div>
+    <script>
+    async function update() {
+        try {
+            const res = await fetch('/telemetry');
+            const data = await res.json();
+            document.getElementById('status').textContent =
+                `Obstacle: ${data.obstacle}  Distance: ${data.distance.toFixed(2)} m  Speed: ${data.speed.toFixed(2)}`;
+        } catch (e) {
+            document.getElementById('status').textContent = 'Error fetching telemetry';
+        }
+    }
+    setInterval(update, 1000);
+    update();
+    </script>
+</body>
+</html>

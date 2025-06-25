@@ -68,7 +68,47 @@ namespace monitor
                            "{\"obstacle\":%s,\"distance\":%.2f,\"speed\":%.2f}",
                            data.obstacle ? "true" : "false", data.distance, data.speed_est);
         httpd_resp_set_type(req, "application/json");
+        httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
         httpd_resp_send(req, resp, len);
+        return ESP_OK;
+    }
+
+    static const char INDEX_HTML[] = R"HTML(
+<!DOCTYPE html>
+<html lang=\"en\">
+<head>
+    <meta charset=\"UTF-8\">
+    <title>Digitoys Telemetry</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 2em; }
+        #status { font-size: 1.2em; }
+    </style>
+</head>
+<body>
+    <h1>Digitoys Telemetry</h1>
+    <div id=\"status\">Loading...</div>
+    <script>
+    async function update() {
+        try {
+            const res = await fetch('/telemetry');
+            const data = await res.json();
+            document.getElementById('status').textContent =
+                `Obstacle: ${data.obstacle}  Distance: ${data.distance.toFixed(2)} m  Speed: ${data.speed.toFixed(2)}`;
+        } catch (e) {
+            document.getElementById('status').textContent = 'Error fetching telemetry';
+        }
+    }
+    setInterval(update, 1000);
+    update();
+    </script>
+</body>
+</html>
+)HTML";
+
+    static esp_err_t index_get_handler(httpd_req_t *req)
+    {
+        httpd_resp_set_type(req, "text/html");
+        httpd_resp_send(req, INDEX_HTML, HTTPD_RESP_USE_STRLEN);
         return ESP_OK;
     }
 
@@ -83,6 +123,13 @@ namespace monitor
             .handler = telemetry_get_handler,
             .user_ctx = nullptr};
         ESP_ERROR_CHECK(httpd_register_uri_handler(server_, &uri));
+
+        httpd_uri_t index = {
+            .uri = "/",
+            .method = HTTP_GET,
+            .handler = index_get_handler,
+            .user_ctx = nullptr};
+        ESP_ERROR_CHECK(httpd_register_uri_handler(server_, &index));
         ESP_LOGI(TAG, "HTTP server started");
         return ESP_OK;
     }

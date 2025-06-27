@@ -105,7 +105,7 @@ namespace monitor
 </html>
 )HTML";
 
-    static esp_err_t index_get_handler(httpd_req_t *req)
+    esp_err_t Monitor::index_get_handler(httpd_req_t *req)
     {
         httpd_resp_set_type(req, "text/html");
         httpd_resp_send(req, INDEX_HTML, HTTPD_RESP_USE_STRLEN);

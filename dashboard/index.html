@@ -52,7 +52,7 @@
             padding: 2rem;
             border-radius: 1rem;
             box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
-            max-width: 400px;
+            max-width: 480px;
             width: 100%;
         }
 
@@ -107,8 +107,8 @@
         document.fonts.ready.then(() => {
             speedGauge = new RadialGauge({
                 renderTo: 'gauge',
-                width: 300,
-                height: 300,
+                width: 360,
+                height: 360,
                 units: 'km/h',
                 minValue: 0,
                 maxValue: 40,
@@ -139,7 +139,8 @@
                 animationRule: "linear",
                 fontUnits: "Poppins",
                 fontTitle: "Poppins",
-                fontNumbers: "Poppins"
+                fontNumbers: "Poppins",
+                fontNumbersSize: 38  // 👈 increased font size
             }).draw();
 
             fetchTelemetry();

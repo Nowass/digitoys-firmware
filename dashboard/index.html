@@ -3,46 +3,144 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Digitoys Telemetry Dashboard</title>
-    <link rel="icon" href="data:,">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         body {
-            font-family: Arial, sans-serif;
-            margin: 2rem;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #111;
+            color: #eee;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 2rem;
         }
 
-        #telemetry {
-            margin-top: 1rem;
+        h1 {
+            margin-bottom: 2rem;
+            color: #0f0;
+        }
+
+        .dashboard {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .gauge {
+            position: relative;
+            width: 300px;
+            height: 150px;
+            background: radial-gradient(circle at bottom, #333 60%, #000 100%);
+            border-top-left-radius: 150px;
+            border-top-right-radius: 150px;
+            border-bottom: 5px solid #222;
+            box-shadow: 0 4px 20px #000;
+        }
+
+        .needle {
+            position: absolute;
+            width: 4px;
+            height: 130px;
+            background-color: red;
+            bottom: 0;
+            left: 50%;
+            transform-origin: bottom center;
+            transform: rotate(-90deg);
+            transition: transform 0.3s ease;
+        }
+
+        .gauge-labels {
+            position: absolute;
+            width: 100%;
+            bottom: 0;
+            text-align: center;
+            color: #aaa;
+            font-size: 0.9rem;
+        }
+
+        .status {
+            margin-top: 2rem;
+            font-size: 1.2rem;
+            padding: 1rem 2rem;
+            border-radius: 10px;
+            background-color: #222;
+            border: 2px solid;
+            text-align: center;
+        }
+
+        .safe {
+            border-color: #0f0;
+            color: #0f0;
+        }
+
+        .warning {
+            border-color: orange;
+            color: orange;
+        }
+
+        .danger {
+            border-color: red;
+            color: red;
         }
     </style>
 </head>
 
 <body>
     <h1>Digitoys Telemetry</h1>
-    <div id="telemetry">Loading...</div>
+    <div class="dashboard">
+        <div class="gauge">
+            <div id="needle" class="needle"></div>
+            <div class="gauge-labels">0 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 20
+                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 40 km/h</div>
+        </div>
+        <div id="status" class="status safe">
+            No obstacle detected
+        </div>
+    </div>
+
     <script>
-        (function () {
-            const params = new URLSearchParams(window.location.search);
-            const host = params.get('host') || window.location.origin;
-            const url = host.replace(/\/$/, '') + '/telemetry';
+        const needle = document.getElementById("needle");
+        const statusDiv = document.getElementById("status");
 
-            async function fetchTelemetry() {
-                try {
-                    const resp = await fetch(url);
-                    const data = await resp.json();
-                    document.getElementById('telemetry').textContent =
-                        `Obstacle: ${data.obstacle}\n` +
-                        `Distance: ${data.distance} m\n` +
-                        `Speed: ${data.speed} m/s`;
-                } catch (err) {
-                    document.getElementById('telemetry').textContent = 'Error retrieving telemetry';
-                }
+        const params = new URLSearchParams(window.location.search);
+        const host = params.get('host') || window.location.origin;
+        const url = host.replace(/\/$/, '') + '/telemetry';
+
+        function updateGauge(speed) {
+            const maxSpeed = 40;
+            const clampedSpeed = Math.min(speed, maxSpeed);
+            const angle = -90 + (clampedSpeed / maxSpeed) * 180;
+            needle.style.transform = `rotate(${angle}deg)`;
+        }
+
+        function updateStatus(obstacle, warning, distance) {
+            if (obstacle) {
+                statusDiv.className = 'status danger';
+                statusDiv.textContent = `🛑 START BRAKING! Obstacle at ${distance.toFixed(2)} m`;
+            } else if (warning) {
+                statusDiv.className = 'status warning';
+                statusDiv.textContent = `⚠️ Warning! Obstacle ahead at ${distance.toFixed(2)} m`;
+            } else {
+                statusDiv.className = 'status safe';
+                statusDiv.textContent = `✅ No obstacle detected`;
             }
+        }
 
-            fetchTelemetry();
-            setInterval(fetchTelemetry, 1000);
-        })();
+        async function fetchTelemetry() {
+            try {
+                const resp = await fetch(url);
+                const data = await resp.json();
+                updateGauge(data.speed * 3.6); // m/s → km/h
+                updateStatus(data.obstacle, data.warning, data.distance);
+            } catch (err) {
+                statusDiv.className = 'status danger';
+                statusDiv.textContent = '⚠️ Telemetry fetch error';
+            }
+        }
+
+        fetchTelemetry();
+        setInterval(fetchTelemetry, 1000);
     </script>
 </body>
 

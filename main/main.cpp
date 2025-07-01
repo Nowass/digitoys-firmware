@@ -38,7 +38,10 @@ static void ControlTask(void *pv)
     while (true)
     {
         auto info = lidar.getObstacleInfo();
-        ctx->mon->updateTelemetry(info.obstacle, info.distance, driver.lastDuty(0));
+        info.distance = 1.82;
+        info.obstacle = false;
+        info.warning = true;
+        ctx->mon->updateTelemetry(info.obstacle, info.distance, driver.lastDuty(0), info.warning);
         if (driver.isThrottlePressed(0))
         {
             if (info.obstacle)

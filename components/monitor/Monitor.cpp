@@ -21,11 +21,12 @@ namespace monitor
         return ESP_OK;
     }
 
-    void Monitor::updateTelemetry(bool obstacle, float distance, float speed_est)
+    void Monitor::updateTelemetry(bool obstacle, float distance, float speed_est, bool warning)
     {
         if (mutex_ && xSemaphoreTake(mutex_, portMAX_DELAY))
         {
             data_.obstacle = obstacle;
+            data_.warning = warning;
             data_.distance = distance;
             data_.speed_est = speed_est;
             xSemaphoreGive(mutex_);
@@ -75,8 +76,8 @@ namespace monitor
 
         char resp[128];
         int len = snprintf(resp, sizeof(resp),
-                           "{\"obstacle\":%s,\"distance\":%.2f,\"speed\":%.2f}",
-                           data.obstacle ? "true" : "false", distance, data.speed_est);
+                           "{\"obstacle\":%s,\"distance\":%.2f,\"speed\":%.2f,\"warning\":%s}",
+                           data.obstacle ? "true" : "false", distance, data.speed_est, data.warning ? "true" : "false");
 
         httpd_resp_set_type(req, "application/json");
         httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
@@ -105,7 +106,7 @@ namespace monitor
                     const res = await fetch('/telemetry');
                     const data = await res.json();
                     document.getElementById('status').textContent =
-                        `Obstacle: ${data.obstacle}  Distance: ${data.distance.toFixed(2)} m  Speed: ${data.speed.toFixed(2)}`;
+                        `Obstacle: ${data.obstacle}  Distance: ${data.distance.toFixed(2)} m  Speed: ${data.speed.toFixed(2)} Warning: ${data.warning}`;
                 } catch (e) {
                     document.getElementById('status').textContent = 'Error fetching telemetry';
                 }

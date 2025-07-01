@@ -51,6 +51,11 @@ namespace monitor
         ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
         ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
         ESP_ERROR_CHECK(esp_wifi_start());
+#ifdef CONFIG_MONITOR_WIFI_TX_POWER_DBM
+        ESP_ERROR_CHECK(
+            esp_wifi_set_max_tx_power(CONFIG_MONITOR_WIFI_TX_POWER_DBM * 4));
+#endif
+        ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_MIN_MODEM));
         ESP_ERROR_CHECK(esp_wifi_connect());
         return ESP_OK;
     }
@@ -74,36 +79,36 @@ namespace monitor
     }
 
     static const char INDEX_HTML[] = R"HTML(
-<!DOCTYPE html>
-<html lang=\"en\">
-<head>
-    <meta charset=\"UTF-8\">
-    <title>Digitoys Telemetry</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 2em; }
-        #status { font-size: 1.2em; }
-    </style>
-</head>
-<body>
-    <h1>Digitoys Telemetry</h1>
-    <div id=\"status\">Loading...</div>
-    <script>
-    async function update() {
-        try {
-            const res = await fetch('/telemetry');
-            const data = await res.json();
-            document.getElementById('status').textContent =
-                `Obstacle: ${data.obstacle}  Distance: ${data.distance.toFixed(2)} m  Speed: ${data.speed.toFixed(2)}`;
-        } catch (e) {
-            document.getElementById('status').textContent = 'Error fetching telemetry';
-        }
-    }
-    setInterval(update, 1000);
-    update();
-    </script>
-</body>
-</html>
-)HTML";
+        <!DOCTYPE html>
+        <html lang=\"en\">
+        <head>
+            <meta charset=\"UTF-8\">
+            <title>Digitoys Telemetry</title>
+            <style>
+                body { font-family: Arial, sans-serif; margin: 2em; }
+                #status { font-size: 1.2em; }
+            </style>
+        </head>
+        <body>
+            <h1>Digitoys Telemetry</h1>
+            <div id=\"status\">Loading...</div>
+            <script>
+            async function update() {
+                try {
+                    const res = await fetch('/telemetry');
+                    const data = await res.json();
+                    document.getElementById('status').textContent =
+                        `Obstacle: ${data.obstacle}  Distance: ${data.distance.toFixed(2)} m  Speed: ${data.speed.toFixed(2)}`;
+                } catch (e) {
+                    document.getElementById('status').textContent = 'Error fetching telemetry';
+                }
+            }
+            setInterval(update, 1000);
+            update();
+            </script>
+        </body>
+        </html>
+        )HTML";
 
     esp_err_t Monitor::index_get_handler(httpd_req_t *req)
     {
@@ -135,4 +140,3 @@ namespace monitor
     }
 
 } // namespace monitor
-

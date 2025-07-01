@@ -1,0 +1,11 @@
+menu "Monitor Configuration"
+    config MONITOR_WIFI_SSID
+        string "WiFi SSID"
+        default "AndroidHotspot6643"
+    config MONITOR_WIFI_PASS
+        string "WiFi Password"
+        default "afe0526674d2"
+    config MONITOR_WIFI_TX_POWER_DBM
+        int "WiFi TX power (dBm)"
+        default 10
+endmenu

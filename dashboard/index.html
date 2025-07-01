@@ -2,71 +2,68 @@
 <html lang="en">
 
 <head>
-    <meta charset="UTF-8">
-    <title>Digitoys Telemetry Dashboard</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Digitoys Telemetry</title>
     <style>
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #111;
-            color: #eee;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            padding: 2rem;
+            background-color: #000;
+            margin: 0;
+            font-family: sans-serif;
+            color: #fff;
+            text-align: center;
+            padding: 1rem;
         }
 
         h1 {
-            margin-bottom: 2rem;
             color: #0f0;
+            margin-bottom: 1rem;
         }
 
-        .dashboard {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
-
-        .gauge {
+        .container {
             position: relative;
-            width: 300px;
-            height: 150px;
-            background: radial-gradient(circle at bottom, #333 60%, #000 100%);
-            border-top-left-radius: 150px;
-            border-top-right-radius: 150px;
-            border-bottom: 5px solid #222;
-            box-shadow: 0 4px 20px #000;
+            width: 90vw;
+            max-width: 600px;
+            aspect-ratio: 848 / 726;
+            margin: auto;
         }
 
-        .needle {
-            position: absolute;
-            width: 4px;
-            height: 130px;
-            background-color: red;
-            bottom: 0;
-            left: 50%;
-            transform-origin: bottom center;
-            transform: rotate(-90deg);
-            transition: transform 0.3s ease;
-        }
-
-        .gauge-labels {
-            position: absolute;
+        .gauge-bg {
             width: 100%;
-            bottom: 0;
-            text-align: center;
-            color: #aaa;
-            font-size: 0.9rem;
+            height: auto;
+            display: block;
         }
 
-        .status {
-            margin-top: 2rem;
-            font-size: 1.2rem;
-            padding: 1rem 2rem;
+        .pointer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            transform-origin: 36% 102%;
+            transform: rotate(0deg) scale(0.35);
+            transition: transform 0.3s ease-out;
+            pointer-events: none;
+        }
+
+        /*.pointer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            transform-origin: 36% 102%;
+            transform: rotate(0deg) scale(0.35);
+            transition: transform 0.3s ease-out;
+            pointer-events: none;
+        }*/
+
+
+        .status-label {
+            margin-top: 1rem;
+            font-size: 1.3rem;
+            padding: 0.8rem 1.5rem;
             border-radius: 10px;
-            background-color: #222;
+            display: inline-block;
             border: 2px solid;
-            text-align: center;
         }
 
         .safe {
@@ -88,42 +85,38 @@
 
 <body>
     <h1>Digitoys Telemetry</h1>
-    <div class="dashboard">
-        <div class="gauge">
-            <div id="needle" class="needle"></div>
-            <div class="gauge-labels">0 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 20
-                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 40 km/h</div>
-        </div>
-        <div id="status" class="status safe">
-            No obstacle detected
-        </div>
+    <div class="container">
+        <img src="tacho-clean.png" alt="Gauge Background" class="gauge-bg" />
+        <img id="pointer" src="pointer.png" class="pointer" alt="Needle" />
     </div>
+    <div id="status" class="status-label safe">No obstacle detected</div>
 
     <script>
-        const needle = document.getElementById("needle");
-        const statusDiv = document.getElementById("status");
+        const pointer = document.getElementById("pointer");
+        const status = document.getElementById("status");
 
         const params = new URLSearchParams(window.location.search);
-        const host = params.get('host') || window.location.origin;
-        const url = host.replace(/\/$/, '') + '/telemetry';
+        const host = params.get("host") || window.location.origin;
+        const url = host.replace(/\/$/, "") + "/telemetry";
 
-        function updateGauge(speed) {
-            const maxSpeed = 40;
-            const clampedSpeed = Math.min(speed, maxSpeed);
-            const angle = -90 + (clampedSpeed / maxSpeed) * 180;
-            needle.style.transform = `rotate(${angle}deg)`;
+        function setPointerRotation(speed) {
+            const clamped = Math.min(speed, 40);
+            const angle = 0; //(clamped / 40) * 180; // 0 → 0deg, 40 → 180deg
+            pointer.style.transform = `rotate(${angle}deg) scale(0.35)`;
         }
+
+
 
         function updateStatus(obstacle, warning, distance) {
             if (obstacle) {
-                statusDiv.className = 'status danger';
-                statusDiv.textContent = `🛑 START BRAKING! Obstacle at ${distance.toFixed(2)} m`;
+                status.className = "status-label danger";
+                status.textContent = `🛑 START BRAKING! Obstacle at ${distance.toFixed(2)} m`;
             } else if (warning) {
-                statusDiv.className = 'status warning';
-                statusDiv.textContent = `⚠️ Warning! Obstacle ahead at ${distance.toFixed(2)} m`;
+                status.className = "status-label warning";
+                status.textContent = `⚠️ Warning: Obstacle ahead at ${distance.toFixed(2)} m`;
             } else {
-                statusDiv.className = 'status safe';
-                statusDiv.textContent = `✅ No obstacle detected`;
+                status.className = "status-label safe";
+                status.textContent = `✅ No obstacle detected`;
             }
         }
 
@@ -131,11 +124,11 @@
             try {
                 const resp = await fetch(url);
                 const data = await resp.json();
-                updateGauge(data.speed * 3.6); // m/s → km/h
+                setPointerRotation(data.speed * 3.6); // m/s → km/h
                 updateStatus(data.obstacle, data.warning, data.distance);
-            } catch (err) {
-                statusDiv.className = 'status danger';
-                statusDiv.textContent = '⚠️ Telemetry fetch error';
+            } catch (e) {
+                status.className = "status-label danger";
+                status.textContent = "⚠️ Telemetry fetch failed";
             }
         }
 

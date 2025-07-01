@@ -5,6 +5,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Digitoys Telemetry</title>
+
+    <!-- Canvas Gauge Script -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-gauges/gauge.min.js"></script>
+
     <style>
         body {
             background-color: #000;
@@ -21,41 +25,9 @@
         }
 
         .container {
-            position: relative;
-            width: 90vw;
-            max-width: 600px;
-            aspect-ratio: 848 / 726;
+            max-width: 400px;
             margin: auto;
         }
-
-        .gauge-bg {
-            width: 100%;
-            height: auto;
-            display: block;
-        }
-
-        .pointer {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            transform-origin: 36% 102%;
-            transform: rotate(0deg) scale(0.35);
-            transition: transform 0.3s ease-out;
-            pointer-events: none;
-        }
-
-        /*.pointer {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            transform-origin: 36% 102%;
-            transform: rotate(0deg) scale(0.35);
-            transition: transform 0.3s ease-out;
-            pointer-events: none;
-        }*/
-
 
         .status-label {
             margin-top: 1rem;
@@ -85,27 +57,31 @@
 
 <body>
     <h1>Digitoys Telemetry</h1>
+
     <div class="container">
-        <img src="tacho-clean.png" alt="Gauge Background" class="gauge-bg" />
-        <img id="pointer" src="pointer.png" class="pointer" alt="Needle" />
+        <canvas id="gauge" data-type="radial-gauge" data-width="300" data-height="300" data-units="km/h"
+            data-font-units="Helvetica" data-font-title="Helvetica" data-font-numbers="Arial" data-font-units-size="26"
+            data-font-title-size="20" data-font-numbers-size="38" data-min-value="0" data-max-value="40"
+            data-major-ticks="0,10,20,30,40" data-minor-ticks="5" data-stroke-ticks="false" data-value-box="false"
+            data-highlights='[
+        {"from": 0, "to": 20, "color": "rgba(0,255,0,0.1)"},
+        {"from": 20, "to": 30, "color": "rgba(255,165,0,0.1)"},
+        {"from": 30, "to": 40, "color": "rgba(255,0,0,0.15)"}
+      ]' data-color-plate="#111" data-color-major-ticks="#888" data-color-minor-ticks="#444" data-color-title="#ccc"
+            data-color-units="#aaa" data-color-numbers="#ccc" data-color-needle-start="#f33"
+            data-color-needle-end="#f33" data-color-needle-shadow="rgba(0,0,0,0.2)" data-border-shadow-width="0"
+            data-borders="false" data-needle="true" data-needle-shadow="true" data-needle-type="arrow"
+            data-animation-duration="500" data-animation-rule="linear"></canvas>
     </div>
+
     <div id="status" class="status-label safe">No obstacle detected</div>
 
     <script>
-        const pointer = document.getElementById("pointer");
         const status = document.getElementById("status");
 
         const params = new URLSearchParams(window.location.search);
         const host = params.get("host") || window.location.origin;
         const url = host.replace(/\/$/, "") + "/telemetry";
-
-        function setPointerRotation(speed) {
-            const clamped = Math.min(speed, 40);
-            const angle = 0; //(clamped / 40) * 180; // 0 → 0deg, 40 → 180deg
-            pointer.style.transform = `rotate(${angle}deg) scale(0.35)`;
-        }
-
-
 
         function updateStatus(obstacle, warning, distance) {
             if (obstacle) {
@@ -124,7 +100,8 @@
             try {
                 const resp = await fetch(url);
                 const data = await resp.json();
-                setPointerRotation(data.speed * 3.6); // m/s → km/h
+                const speedKmh = data.speed;
+                document.gauges[0].value = speedKmh;
                 updateStatus(data.obstacle, data.warning, data.distance);
             } catch (e) {
                 status.className = "status-label danger";

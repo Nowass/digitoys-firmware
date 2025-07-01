@@ -1,29 +1,48 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
-    <title>Digitoys Telemetry</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Digitoys Telemetry Dashboard</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 2em; }
-        #status { font-size: 1.2em; }
+        body {
+            font-family: Arial, sans-serif;
+            margin: 2rem;
+        }
+
+        #telemetry {
+            margin-top: 1rem;
+        }
     </style>
 </head>
+
 <body>
     <h1>Digitoys Telemetry</h1>
-    <div id="status">Loading...</div>
+    <div id="telemetry">Loading...</div>
     <script>
-    async function update() {
-        try {
-            const res = await fetch('/telemetry');
-            const data = await res.json();
-            document.getElementById('status').textContent =
-                `Obstacle: ${data.obstacle}  Distance: ${data.distance.toFixed(2)} m  Speed: ${data.speed.toFixed(2)}`;
-        } catch (e) {
-            document.getElementById('status').textContent = 'Error fetching telemetry';
-        }
-    }
-    setInterval(update, 1000);
-    update();
+        (function () {
+            const params = new URLSearchParams(window.location.search);
+            const host = params.get('host') || window.location.origin;
+            const url = host.replace(/\/$/, '') + '/telemetry';
+
+            async function fetchTelemetry() {
+                try {
+                    const resp = await fetch(url);
+                    const data = await resp.json();
+                    document.getElementById('telemetry').textContent =
+                        `Obstacle: ${data.obstacle}\n` +
+                        `Distance: ${data.distance} m\n` +
+                        `Speed: ${data.speed} m/s`;
+                } catch (err) {
+                    document.getElementById('telemetry').textContent = 'Error retrieving telemetry';
+                }
+            }
+
+            fetchTelemetry();
+            setInterval(fetchTelemetry, 1000);
+        })();
     </script>
 </body>
+
 </html>

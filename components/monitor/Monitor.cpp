@@ -5,6 +5,7 @@
 #include <nvs_flash.h>
 #include <esp_log.h>
 #include <string.h>
+#include <cmath>
 
 namespace monitor
 {
@@ -68,10 +69,15 @@ namespace monitor
             data = instance_->data_;
             xSemaphoreGive(instance_->mutex_);
         }
+
+        // Clamp distance if it's infinity
+        float distance = std::isinf(data.distance) ? 999.99f : data.distance;
+
         char resp[128];
         int len = snprintf(resp, sizeof(resp),
                            "{\"obstacle\":%s,\"distance\":%.2f,\"speed\":%.2f}",
-                           data.obstacle ? "true" : "false", data.distance, data.speed_est);
+                           data.obstacle ? "true" : "false", distance, data.speed_est);
+
         httpd_resp_set_type(req, "application/json");
         httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
         httpd_resp_send(req, resp, len);
@@ -84,6 +90,7 @@ namespace monitor
         <head>
             <meta charset=\"UTF-8\">
             <title>Digitoys Telemetry</title>
+            <link rel=\"icon\" href=\"data:,\">
             <style>
                 body { font-family: Arial, sans-serif; margin: 2em; }
                 #status { font-size: 1.2em; }

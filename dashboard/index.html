@@ -5,8 +5,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Digitoys Telemetry</title>
+
+    <!-- Load Poppins font -->
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet" />
+
+    <!-- Canvas Gauge Script -->
     <script src="https://cdn.jsdelivr.net/npm/canvas-gauges/gauge.min.js"></script>
+
     <style>
         :root {
             --bg-color: #0d1117;
@@ -87,20 +92,7 @@
 <body>
     <h1>Digitoys Telemetry</h1>
     <div class="container">
-        <canvas id="gauge" data-type="radial-gauge" data-width="300" data-height="300" data-units="km/h"
-            data-font-units="Poppins" data-font-title="Poppins" data-font-numbers="Poppins" data-font-units-size="20"
-            data-font-title-size="20" data-font-numbers-size="32" data-min-value="0" data-max-value="40"
-            data-major-ticks="0,10,20,30,40" data-minor-ticks="5" data-stroke-ticks="false" data-value-box="false"
-            data-highlights='[
-        {"from": 0, "to": 20, "color": "rgba(46, 160, 67, 0.15)"},
-        {"from": 20, "to": 30, "color": "rgba(210, 153, 34, 0.15)"},
-        {"from": 30, "to": 40, "color": "rgba(248, 81, 73, 0.15)"}
-      ]' data-color-plate="#161b22" data-color-major-ticks="#ccc" data-color-minor-ticks="#555" data-color-title="#888"
-            data-color-units="#aaa" data-color-numbers="#eee" data-color-needle-start="#f85149"
-            data-color-needle-end="#f85149" data-color-needle-shadow="rgba(0,0,0,0.2)" data-border-shadow-width="0"
-            data-borders="false" data-needle="true" data-needle-shadow="true" data-needle-type="arrow"
-            data-animation-duration="500" data-animation-rule="linear">
-        </canvas>
+        <canvas id="gauge"></canvas>
         <div id="status" class="status-label safe">No obstacle detected</div>
     </div>
 
@@ -109,6 +101,50 @@
         const params = new URLSearchParams(window.location.search);
         const host = params.get("host") || window.location.origin;
         const url = host.replace(/\/$/, "") + "/telemetry";
+
+        let speedGauge;
+
+        document.fonts.ready.then(() => {
+            speedGauge = new RadialGauge({
+                renderTo: 'gauge',
+                width: 300,
+                height: 300,
+                units: 'km/h',
+                minValue: 0,
+                maxValue: 40,
+                majorTicks: ['0', '10', '20', '30', '40'],
+                minorTicks: 5,
+                strokeTicks: false,
+                valueBox: false,
+                highlights: [
+                    { from: 0, to: 20, color: "rgba(46, 160, 67, 0.15)" },
+                    { from: 20, to: 30, color: "rgba(210, 153, 34, 0.15)" },
+                    { from: 30, to: 40, color: "rgba(248, 81, 73, 0.15)" }
+                ],
+                colorPlate: "#161b22",
+                colorMajorTicks: "#ccc",
+                colorMinorTicks: "#555",
+                colorTitle: "#888",
+                colorUnits: "#aaa",
+                colorNumbers: "#eee",
+                colorNeedleStart: "#f85149",
+                colorNeedleEnd: "#f85149",
+                colorNeedleShadow: "rgba(0,0,0,0.2)",
+                borderShadowWidth: 0,
+                borders: false,
+                needle: true,
+                needleShadow: true,
+                needleType: "arrow",
+                animationDuration: 500,
+                animationRule: "linear",
+                fontUnits: "Poppins",
+                fontTitle: "Poppins",
+                fontNumbers: "Poppins"
+            }).draw();
+
+            fetchTelemetry();
+            setInterval(fetchTelemetry, 1000);
+        });
 
         function updateStatus(obstacle, warning, distance) {
             if (obstacle) {
@@ -128,16 +164,13 @@
                 const resp = await fetch(url);
                 const data = await resp.json();
                 const speedKmh = data.speed;
-                document.gauges[0].value = speedKmh;
+                speedGauge.value = speedKmh;
                 updateStatus(data.obstacle, data.warning, data.distance);
             } catch (e) {
                 status.className = "status-label danger";
                 status.textContent = "⚠ Telemetry fetch failed";
             }
         }
-
-        fetchTelemetry();
-        setInterval(fetchTelemetry, 1000);
     </script>
 </body>
 

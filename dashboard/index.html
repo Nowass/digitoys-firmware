@@ -5,80 +5,107 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Digitoys Telemetry</title>
-
-    <!-- Canvas Gauge Script -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet" />
     <script src="https://cdn.jsdelivr.net/npm/canvas-gauges/gauge.min.js"></script>
-
     <style>
-        body {
-            background-color: #000;
+        :root {
+            --bg-color: #0d1117;
+            --text-color: #c9d1d9;
+            --accent-green: #2ea043;
+            --accent-orange: #d29922;
+            --accent-red: #f85149;
+            --gauge-bg: #161b22;
+        }
+
+        * {
+            box-sizing: border-box;
             margin: 0;
-            font-family: sans-serif;
-            color: #fff;
-            text-align: center;
-            padding: 1rem;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Poppins', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            min-height: 100vh;
+            padding: 2rem 1rem;
         }
 
         h1 {
-            color: #0f0;
-            margin-bottom: 1rem;
+            font-size: 2rem;
+            font-weight: 600;
+            color: var(--accent-green);
+            margin-bottom: 2rem;
         }
 
         .container {
+            background-color: var(--gauge-bg);
+            padding: 2rem;
+            border-radius: 1rem;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
             max-width: 400px;
+            width: 100%;
+        }
+
+        canvas#gauge {
+            display: block;
             margin: auto;
         }
 
         .status-label {
-            margin-top: 1rem;
-            font-size: 1.3rem;
-            padding: 0.8rem 1.5rem;
-            border-radius: 10px;
-            display: inline-block;
-            border: 2px solid;
+            margin-top: 2rem;
+            font-size: 1.1rem;
+            font-weight: 500;
+            padding: 1rem;
+            border-radius: 0.75rem;
+            background-color: #1f2937;
+            transition: all 0.3s ease;
+            border-left: 4px solid;
         }
 
         .safe {
-            border-color: #0f0;
-            color: #0f0;
+            border-color: var(--accent-green);
+            color: var(--accent-green);
         }
 
         .warning {
-            border-color: orange;
-            color: orange;
+            border-color: var(--accent-orange);
+            color: var(--accent-orange);
         }
 
         .danger {
-            border-color: red;
-            color: red;
+            border-color: var(--accent-red);
+            color: var(--accent-red);
         }
     </style>
 </head>
 
 <body>
     <h1>Digitoys Telemetry</h1>
-
     <div class="container">
         <canvas id="gauge" data-type="radial-gauge" data-width="300" data-height="300" data-units="km/h"
-            data-font-units="Helvetica" data-font-title="Helvetica" data-font-numbers="Arial" data-font-units-size="26"
-            data-font-title-size="20" data-font-numbers-size="38" data-min-value="0" data-max-value="40"
+            data-font-units="Poppins" data-font-title="Poppins" data-font-numbers="Poppins" data-font-units-size="20"
+            data-font-title-size="20" data-font-numbers-size="32" data-min-value="0" data-max-value="40"
             data-major-ticks="0,10,20,30,40" data-minor-ticks="5" data-stroke-ticks="false" data-value-box="false"
             data-highlights='[
-        {"from": 0, "to": 20, "color": "rgba(0,255,0,0.1)"},
-        {"from": 20, "to": 30, "color": "rgba(255,165,0,0.1)"},
-        {"from": 30, "to": 40, "color": "rgba(255,0,0,0.15)"}
-      ]' data-color-plate="#111" data-color-major-ticks="#888" data-color-minor-ticks="#444" data-color-title="#ccc"
-            data-color-units="#aaa" data-color-numbers="#ccc" data-color-needle-start="#f33"
-            data-color-needle-end="#f33" data-color-needle-shadow="rgba(0,0,0,0.2)" data-border-shadow-width="0"
+        {"from": 0, "to": 20, "color": "rgba(46, 160, 67, 0.15)"},
+        {"from": 20, "to": 30, "color": "rgba(210, 153, 34, 0.15)"},
+        {"from": 30, "to": 40, "color": "rgba(248, 81, 73, 0.15)"}
+      ]' data-color-plate="#161b22" data-color-major-ticks="#ccc" data-color-minor-ticks="#555" data-color-title="#888"
+            data-color-units="#aaa" data-color-numbers="#eee" data-color-needle-start="#f85149"
+            data-color-needle-end="#f85149" data-color-needle-shadow="rgba(0,0,0,0.2)" data-border-shadow-width="0"
             data-borders="false" data-needle="true" data-needle-shadow="true" data-needle-type="arrow"
-            data-animation-duration="500" data-animation-rule="linear"></canvas>
+            data-animation-duration="500" data-animation-rule="linear">
+        </canvas>
+        <div id="status" class="status-label safe">No obstacle detected</div>
     </div>
-
-    <div id="status" class="status-label safe">No obstacle detected</div>
 
     <script>
         const status = document.getElementById("status");
-
         const params = new URLSearchParams(window.location.search);
         const host = params.get("host") || window.location.origin;
         const url = host.replace(/\/$/, "") + "/telemetry";
@@ -89,7 +116,7 @@
                 status.textContent = `🛑 START BRAKING! Obstacle at ${distance.toFixed(2)} m`;
             } else if (warning) {
                 status.className = "status-label warning";
-                status.textContent = `⚠️ Warning: Obstacle ahead at ${distance.toFixed(2)} m`;
+                status.textContent = `⚠ Warning: Obstacle ahead at ${distance.toFixed(2)} m`;
             } else {
                 status.className = "status-label safe";
                 status.textContent = `✅ No obstacle detected`;
@@ -105,7 +132,7 @@
                 updateStatus(data.obstacle, data.warning, data.distance);
             } catch (e) {
                 status.className = "status-label danger";
-                status.textContent = "⚠️ Telemetry fetch failed";
+                status.textContent = "⚠ Telemetry fetch failed";
             }
         }
 

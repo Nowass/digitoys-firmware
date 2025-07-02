@@ -4,8 +4,8 @@
 #include <esp_netif.h>
 #include <esp_log.h>
 #include <nvs_flash.h>
-#include <esp_timer.h>
 #include <esp_heap_caps.h>
+#include <freertos/task.h>
 #include <string.h>
 
 namespace monitor {

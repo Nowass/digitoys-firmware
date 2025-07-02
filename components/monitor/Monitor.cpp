@@ -5,6 +5,7 @@
 #include <nvs_flash.h>
 #include <esp_log.h>
 #include <string.h>
+#include <cmath>
 
 namespace monitor
 {
@@ -20,11 +21,12 @@ namespace monitor
         return ESP_OK;
     }
 
-    void Monitor::updateTelemetry(bool obstacle, float distance, float speed_est)
+    void Monitor::updateTelemetry(bool obstacle, float distance, float speed_est, bool warning)
     {
         if (mutex_ && xSemaphoreTake(mutex_, portMAX_DELAY))
         {
             data_.obstacle = obstacle;
+            data_.warning = warning;
             data_.distance = distance;
             data_.speed_est = speed_est;
             xSemaphoreGive(mutex_);
@@ -51,6 +53,11 @@ namespace monitor
         ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
         ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
         ESP_ERROR_CHECK(esp_wifi_start());
+#ifdef CONFIG_MONITOR_WIFI_TX_POWER_DBM
+        ESP_ERROR_CHECK(
+            esp_wifi_set_max_tx_power(CONFIG_MONITOR_WIFI_TX_POWER_DBM * 4));
+#endif
+        ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_MIN_MODEM));
         ESP_ERROR_CHECK(esp_wifi_connect());
         return ESP_OK;
     }
@@ -63,12 +70,58 @@ namespace monitor
             data = instance_->data_;
             xSemaphoreGive(instance_->mutex_);
         }
+
+        // Clamp distance if it's infinity
+        float distance = std::isinf(data.distance) ? 999.99f : data.distance;
+
         char resp[128];
         int len = snprintf(resp, sizeof(resp),
-                           "{\"obstacle\":%s,\"distance\":%.2f,\"speed\":%.2f}",
-                           data.obstacle ? "true" : "false", data.distance, data.speed_est);
+                           "{\"obstacle\":%s,\"distance\":%.2f,\"speed\":%.2f,\"warning\":%s}",
+                           data.obstacle ? "true" : "false", distance, data.speed_est, data.warning ? "true" : "false");
+
         httpd_resp_set_type(req, "application/json");
+        httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
         httpd_resp_send(req, resp, len);
+        return ESP_OK;
+    }
+
+    static const char INDEX_HTML[] = R"HTML(
+        <!DOCTYPE html>
+        <html lang=\"en\">
+        <head>
+            <meta charset=\"UTF-8\">
+            <title>Digitoys Telemetry</title>
+            <link rel=\"icon\" href=\"data:,\">
+            <style>
+                body { font-family: Arial, sans-serif; margin: 2em; }
+                #status { font-size: 1.2em; }
+            </style>
+        </head>
+        <body>
+            <h1>Digitoys Telemetry</h1>
+            <div id=\"status\">Loading...</div>
+            <script>
+            async function update() {
+                try {
+                    const res = await fetch('/telemetry');
+                    const data = await res.json();
+                    document.getElementById('status').textContent =
+                        `Obstacle: ${data.obstacle}  Distance: ${data.distance.toFixed(2)} m  Speed: ${data.speed.toFixed(2)} Warning: ${data.warning}`;
+                } catch (e) {
+                    document.getElementById('status').textContent = 'Error fetching telemetry';
+                }
+            }
+            setInterval(update, 1000);
+            update();
+            </script>
+        </body>
+        </html>
+        )HTML";
+
+    esp_err_t Monitor::index_get_handler(httpd_req_t *req)
+    {
+        httpd_resp_set_type(req, "text/html");
+        httpd_resp_send(req, INDEX_HTML, HTTPD_RESP_USE_STRLEN);
         return ESP_OK;
     }
 
@@ -83,9 +136,15 @@ namespace monitor
             .handler = telemetry_get_handler,
             .user_ctx = nullptr};
         ESP_ERROR_CHECK(httpd_register_uri_handler(server_, &uri));
+
+        httpd_uri_t index = {
+            .uri = "/",
+            .method = HTTP_GET,
+            .handler = index_get_handler,
+            .user_ctx = nullptr};
+        ESP_ERROR_CHECK(httpd_register_uri_handler(server_, &index));
         ESP_LOGI(TAG, "HTTP server started");
         return ESP_OK;
     }
 
 } // namespace monitor
-

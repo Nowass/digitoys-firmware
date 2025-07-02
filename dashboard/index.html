@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Digitoys Telemetry</title>
+
+    <!-- Load Poppins font -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet" />
+
+    <!-- Canvas Gauge Script -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-gauges/gauge.min.js"></script>
+
+    <style>
+        :root {
+            --bg-color: #0d1117;
+            --text-color: #c9d1d9;
+            --accent-green: #2ea043;
+            --accent-orange: #d29922;
+            --accent-red: #f85149;
+            --gauge-bg: #161b22;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Poppins', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            min-height: 100vh;
+            padding: 2rem 1rem;
+        }
+
+        h1 {
+            font-size: 2rem;
+            font-weight: 600;
+            color: var(--accent-green);
+            margin-bottom: 2rem;
+        }
+
+        .container {
+            background-color: var(--gauge-bg);
+            padding: 2rem;
+            border-radius: 1rem;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+            max-width: 480px;
+            width: 100%;
+        }
+
+        canvas#gauge {
+            display: block;
+            margin: auto;
+        }
+
+        .status-label {
+            margin-top: 2rem;
+            font-size: 1.1rem;
+            font-weight: 500;
+            padding: 1rem;
+            border-radius: 0.75rem;
+            background-color: #1f2937;
+            transition: all 0.3s ease;
+            border-left: 4px solid;
+        }
+
+        .safe {
+            border-color: var(--accent-green);
+            color: var(--accent-green);
+        }
+
+        .warning {
+            border-color: var(--accent-orange);
+            color: var(--accent-orange);
+        }
+
+        .danger {
+            border-color: var(--accent-red);
+            color: var(--accent-red);
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Digitoys Telemetry</h1>
+    <div class="container">
+        <canvas id="gauge"></canvas>
+        <div id="status" class="status-label safe">No obstacle detected</div>
+    </div>
+
+    <script>
+        const status = document.getElementById("status");
+        const params = new URLSearchParams(window.location.search);
+        const host = params.get("host") || window.location.origin;
+        const url = host.replace(/\/$/, "") + "/telemetry";
+
+        let speedGauge;
+
+        document.fonts.ready.then(() => {
+            speedGauge = new RadialGauge({
+                renderTo: 'gauge',
+                width: 360,
+                height: 360,
+                units: 'km/h',
+                minValue: 0,
+                maxValue: 40,
+                majorTicks: ['0', '10', '20', '30', '40'],
+                minorTicks: 5,
+                strokeTicks: false,
+                valueBox: false,
+                highlights: [
+                    { from: 0, to: 20, color: "rgba(46, 160, 67, 0.15)" },
+                    { from: 20, to: 30, color: "rgba(210, 153, 34, 0.15)" },
+                    { from: 30, to: 40, color: "rgba(248, 81, 73, 0.15)" }
+                ],
+                colorPlate: "#161b22",
+                colorMajorTicks: "#ccc",
+                colorMinorTicks: "#555",
+                colorTitle: "#888",
+                colorUnits: "#aaa",
+                colorNumbers: "#eee",
+                colorNeedleStart: "#f85149",
+                colorNeedleEnd: "#f85149",
+                colorNeedleShadow: "rgba(0,0,0,0.2)",
+                borderShadowWidth: 0,
+                borders: false,
+                needle: true,
+                needleShadow: true,
+                needleType: "arrow",
+                animationDuration: 500,
+                animationRule: "linear",
+                fontUnits: "Poppins",
+                fontTitle: "Poppins",
+                fontNumbers: "Poppins",
+                fontNumbersSize: 38  // 👈 increased font size
+            }).draw();
+
+            fetchTelemetry();
+            setInterval(fetchTelemetry, 1000);
+        });
+
+        function updateStatus(obstacle, warning, distance) {
+            if (obstacle) {
+                status.className = "status-label danger";
+                status.textContent = `🛑 START BRAKING! Obstacle at ${distance.toFixed(2)} m`;
+            } else if (warning) {
+                status.className = "status-label warning";
+                status.textContent = `⚠ Warning: Obstacle ahead at ${distance.toFixed(2)} m`;
+            } else {
+                status.className = "status-label safe";
+                status.textContent = `✅ No obstacle detected`;
+            }
+        }
+
+        async function fetchTelemetry() {
+            try {
+                const resp = await fetch(url);
+                const data = await resp.json();
+                const speedKmh = data.speed;
+                speedGauge.value = speedKmh;
+                updateStatus(data.obstacle, data.warning, data.distance);
+            } catch (e) {
+                status.className = "status-label danger";
+                status.textContent = "⚠ Telemetry fetch failed";
+            }
+        }
+    </script>
+</body>
+
+</html>

@@ -159,8 +159,7 @@ namespace adas
         return input_->start([this](float duty)
                              {
                                  last_duty_ = duty;
-                                 output_->setDuty(duty);
-                             });
+                                 output_->setDuty(duty); });
     }
 
     esp_err_t PwmPassthroughChannel::stop()

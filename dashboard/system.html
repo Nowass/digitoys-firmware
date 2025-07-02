@@ -6,7 +6,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Digitoys System Monitor</title>
 
+    <!-- Load Poppins font -->
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet" />
+
+    <!-- Canvas Gauge Script -->
     <script src="https://cdn.jsdelivr.net/npm/canvas-gauges/gauge.min.js"></script>
 
     <style>
@@ -14,6 +17,8 @@
             --bg-color: #0d1117;
             --text-color: #c9d1d9;
             --accent-green: #2ea043;
+            --accent-orange: #d29922;
+            --accent-red: #f85149;
             --gauge-bg: #161b22;
         }
 
@@ -30,8 +35,6 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: flex-start;
-            min-height: 100vh;
             padding: 2rem 1rem;
         }
 
@@ -51,14 +54,30 @@
             width: 100%;
         }
 
-        canvas#gauge {
+        canvas {
             display: block;
-            margin: auto;
+            margin: 0 auto 1.5rem;
         }
 
-        ul {
+        .heap-info {
+            font-size: 1rem;
+            margin-bottom: 1rem;
+            text-align: center;
+        }
+
+        .task-list {
             list-style: none;
+            padding: 0;
             margin-top: 1rem;
+        }
+
+        .task-list li {
+            font-size: 0.95rem;
+            padding: 0.5rem 1rem;
+            margin-bottom: 0.5rem;
+            background-color: #1f2937;
+            border-left: 4px solid var(--accent-green);
+            border-radius: 6px;
         }
     </style>
 </head>
@@ -67,11 +86,12 @@
     <h1>Digitoys System Monitor</h1>
     <div class="container">
         <canvas id="gauge"></canvas>
-        <div id="heap"></div>
-        <ul id="tasks"></ul>
+        <div id="heap" class="heap-info">Loading heap info...</div>
+        <ul id="tasks" class="task-list"></ul>
     </div>
 
     <script>
+        const status = document.getElementById("heap");
         const params = new URLSearchParams(window.location.search);
         const host = params.get("host") || window.location.origin;
         const url = host.replace(/\/$/, "") + "/system";
@@ -122,16 +142,17 @@
                 const resp = await fetch(url);
                 const data = await resp.json();
                 cpuGauge.value = data.cpu;
-                document.getElementById('heap').textContent = `Heap: ${data.free_heap} / ${data.total_heap}`;
+                document.getElementById('heap').textContent = `Heap used: ${data.total_heap - data.free_heap} / ${data.total_heap} bytes`;
+
                 const list = document.getElementById('tasks');
                 list.innerHTML = '';
                 data.tasks.forEach(t => {
                     const li = document.createElement('li');
-                    li.textContent = `${t.name}: ${t.hwm}`;
+                    li.textContent = `${t.name}: ${t.hwm} bytes HWM`;
                     list.appendChild(li);
                 });
             } catch (e) {
-                document.getElementById('heap').textContent = 'Stats fetch failed';
+                document.getElementById('heap').textContent = '⚠ Failed to fetch stats';
             }
         }
     </script>

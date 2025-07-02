@@ -1,12 +1,22 @@
-# Digitoys Telemetry Dashboard
+# Dashboard
 
-This folder contains a minimal HTML dashboard that polls the `/telemetry` endpoint provided by the firmware's monitor component.
+This dashboard displays real-time telemetry data from the Digitoys ESP32 firmware.
 
 ## Usage
 
-1. Build and flash the firmware so the monitor's HTTP server is running on your ESP32-C6.
-2. Copy the `dashboard` folder to any web server (or run `python3 -m http.server` inside it).
-3. Open the page in a browser using the board's IP address (e.g. `http://<board-ip>/`).
-4. The page will refresh the latest telemetry every second.
+1. Build and flash the firmware with the monitor component enabled so that `/telemetry` is available over HTTP.
+2. Open `index.html` in any modern web browser. Because the page can be loaded from anywhere, specify the ESP32 address using the `host` query parameter:
 
-The same HTML page is also embedded in the firmware and served from the root URL.
+   ```
+   file:///path/to/index.html?host=http://<device-ip>
+   ```
+   e.g. `file:///home/nowass/GIT/digitoys-firmware/dashboard/index.html?host=http://192.168.191.105`
+
+   You may also serve the file from any local or remote web server in the same way:
+
+   ```
+   http://your-server/index.html?host=http://<device-ip>
+   ```
+
+The dashboard will poll `<host>/telemetry` every second and display the obstacle
+status, distance and speed.

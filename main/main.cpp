@@ -6,6 +6,7 @@
 #include "LiDARConfig.hpp"
 #include "LiDAR.hpp"
 #include "Monitor.hpp"
+#include "SystemMonitor.hpp"
 #include <limits>
 
 static const char *TAG = "APP_MAIN";
@@ -121,6 +122,11 @@ extern "C" void app_main()
     static monitor::Monitor mon;
     ESP_ERROR_CHECK(mon.start());
     ESP_LOGI(TAG, "Monitor started");
+
+    // --- System monitor ---
+    static monitor::SystemMonitor sys_mon;
+    ESP_ERROR_CHECK(sys_mon.start());
+    ESP_LOGI(TAG, "System monitor started");
 
     // --- Launch ControlTask ---
     static ControlContext ctx = {&lidar, &pwm_driver, &mon};

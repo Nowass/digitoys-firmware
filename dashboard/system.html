@@ -78,15 +78,34 @@
                 border-left-width 0.3s ease,
                 border-left-color 0.3s ease;
         }
+
+        .cpu-status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-top: 1rem;
+            font-size: 1rem;
+            font-weight: 500;
+        }
+
+        .cpu-bar {
+            width: 24px;
+            height: 18px;
+            background-color: var(--accent-green);
+            border-top: 4px solid transparent;
+        }
     </style>
 </head>
 
 <body>
     <h1>Digitoys System Monitor</h1>
-    <div class="container">
-        <canvas id="cpuChart" width="400" height="200"></canvas>
-        <ul class="usage-list" id="metrics"></ul>
+    <canvas id="cpuChart" width="400" height="200"></canvas>
+    <div class="cpu-status">
+        <div class="cpu-bar" id="cpuBar"></div>
+        <div id="cpuLabel">CPU 0%</div>
     </div>
+    <ul class="usage-list" id="metrics"></ul>
+
 
     <script>
         const params = new URLSearchParams(window.location.search);
@@ -152,6 +171,23 @@
                 const data = await resp.json();
 
                 updateCpuChart(data.cpu);
+
+                // Update CPU label and bar
+                const cpuLabel = document.getElementById('cpuLabel');
+                const cpuBar = document.getElementById('cpuBar');
+                cpuLabel.textContent = `CPU ${data.cpu.toFixed(1)}%`;
+
+                if (data.cpu >= 90) {
+                    cpuBar.style.backgroundColor = 'var(--accent-red)';
+                    cpuBar.style.borderTopColor = '#700';
+                } else if (data.cpu >= 70) {
+                    cpuBar.style.backgroundColor = 'var(--accent-orange)';
+                    cpuBar.style.borderTopColor = '#733';
+                } else {
+                    cpuBar.style.backgroundColor = 'var(--accent-green)';
+                    cpuBar.style.borderTopColor = '#173';
+                }
+
 
                 const list = document.getElementById('metrics');
                 list.innerHTML = '';

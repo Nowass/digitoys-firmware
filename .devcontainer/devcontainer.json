@@ -1,24 +1,50 @@
 {
+  // ————————————————————————————————————
+  //  ESP-IDF Dev Container (QEMU ready)
+  // ————————————————————————————————————
   "name": "ESP-IDF QEMU",
+  // ---------- Build ----------
   "build": {
     "dockerfile": "Dockerfile"
   },
+  // ---------- Runtime ---------- 
+  // run as the non-root user created by espressif/idf images
+  "remoteUser": "esp",
+  // pass IDF vars to every VS Code task & terminal
+  "containerEnv": {
+    "IDF_PATH": "/opt/esp/idf",
+    "IDF_TOOLS_PATH": "/opt/esp",
+    "OPENOCD_SCRIPTS": "/opt/esp/tools/openocd-esp32/v0.12.0-esp32-20250422/openocd-esp32/share/openocd/scripts"
+  },
+  // give the container USB & network access (flash/debug or QEMU TAP)
+  "runArgs": [
+    "--privileged",
+    "--device=/dev/ttyUSB0", // comment out if not needed
+    "--device=/dev/ttyACM0"
+  ],
+  // install & pre-configure extensions **inside** the container
   "customizations": {
     "vscode": {
-      "settings": {
-        "idf.espIdfPath": "/opt/esp/idf",
-        "idf.toolsPath": "/opt/esp",
-        "idf.openOcdPath": "/opt/esp/tools/openocd-esp32/v0.12.0-esp32-20250422/openocd-esp32/bin/openocd",
-        "idf.openOcdCfgPath": "/opt/esp/tools/openocd-esp32/v0.12.0-esp32-20250422/openocd-esp32/share/openocd/scripts",
-        "idf.adapterTargetName": "esp32c6"
-      },
       "extensions": [
         "espressif.esp-idf-extension",
         "espressif.esp-idf-web",
         "ms-vscode.cpptools",
         "ms-python.python"
-      ]
+      ],
+      "settings": {
+        // 100 % deterministic paths so the extension never asks again
+        "idf.espIdfPath": "/opt/esp/idf",
+        "idf.toolsPath": "/opt/esp",
+        "idf.pythonBinPath": "/opt/esp/python_env/idf5.1_py3.11_env/bin/python",
+        "idf.openOcdPath": "/opt/esp/tools/openocd-esp32/v0.12.0-esp32-20250422/openocd-esp32/bin/openocd",
+        "idf.openOcdCfgPath": "/opt/esp/tools/openocd-esp32/v0.12.0-esp32-20250422/openocd-esp32/share/openocd/scripts",
+        "idf.adapterTargetName": "esp32c6"
+      }
     }
   },
-  "runArgs": ["--privileged"]
+  // ---------- First-run automation ----------
+  "postCreateCommand": [
+    // prove the tool-chain really works
+    "bash -lc 'source /opt/esp/idf/export.sh && idf.py --version'"
+  ]
 }

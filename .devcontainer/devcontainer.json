@@ -41,7 +41,7 @@
   },
   // ---------- First-run automation ----------
   "postCreateCommand": [
-    // prove the tool-chain really works
+    ".devcontainer/setup-idf.sh",
     "bash -lc 'source /opt/esp/idf/export.sh'"
   ]
 }

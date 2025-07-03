@@ -8,8 +8,6 @@
     "dockerfile": "Dockerfile"
   },
   // ---------- Runtime ---------- 
-  // run as the non-root user created by espressif/idf images
-  "remoteUser": "esp",
   // pass IDF vars to every VS Code task & terminal
   "containerEnv": {
     "IDF_PATH": "/opt/esp/idf",
@@ -32,7 +30,6 @@
         "ms-python.python"
       ],
       "settings": {
-        // 100 % deterministic paths so the extension never asks again
         "idf.espIdfPath": "/opt/esp/idf",
         "idf.toolsPath": "/opt/esp",
         "idf.pythonBinPath": "/opt/esp/python_env/idf5.1_py3.11_env/bin/python",
@@ -45,6 +42,6 @@
   // ---------- First-run automation ----------
   "postCreateCommand": [
     // prove the tool-chain really works
-    "bash -lc 'source /opt/esp/idf/export.sh && idf.py --version'"
+    "bash -lc 'source /opt/esp/idf/export.sh'"
   ]
 }

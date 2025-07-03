@@ -71,6 +71,10 @@ namespace monitor
             cJSON *task = cJSON_CreateObject();
             cJSON_AddStringToObject(task, "name", status[i].pcTaskName);
             cJSON_AddNumberToObject(task, "hwm", status[i].usStackHighWaterMark);
+            uintptr_t stack_max = reinterpret_cast<uintptr_t>(status[i].pxStackBase);
+            uintptr_t stack_min = stack_max - (status[i].usStackHighWaterMark * sizeof(StackType_t));
+            cJSON_AddNumberToObject(task, "min", (double)stack_min);
+            cJSON_AddNumberToObject(task, "max", (double)stack_max);
             cJSON_AddItemToArray(tasks, task);
         }
         cJSON_AddItemToObject(root, "tasks", tasks);

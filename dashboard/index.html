@@ -150,13 +150,13 @@
         function updateStatus(obstacle, warning, distance) {
             if (obstacle) {
                 status.className = "status-label danger";
-                status.textContent = `🛑 START BRAKING! Obstacle at ${distance.toFixed(2)} m`;
+                status.textContent = `START BRAKING! Obstacle at ${distance.toFixed(2)} m`;
             } else if (warning) {
                 status.className = "status-label warning";
-                status.textContent = `⚠ Warning: Obstacle ahead at ${distance.toFixed(2)} m`;
+                status.textContent = `Warning: Obstacle ahead at ${distance.toFixed(2)} m`;
             } else {
                 status.className = "status-label safe";
-                status.textContent = `✅ No obstacle detected`;
+                status.textContent = `No obstacle detected`;
             }
         }
 

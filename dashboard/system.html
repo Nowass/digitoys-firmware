@@ -35,6 +35,8 @@
             display: flex;
             flex-direction: column;
             align-items: center;
+            justify-content: flex-start;
+            min-height: 100vh;
             padding: 2rem 1rem;
         }
 
@@ -54,30 +56,29 @@
             width: 100%;
         }
 
-        canvas {
+        canvas#gauge {
             display: block;
-            margin: 0 auto 1.5rem;
+            margin: auto;
         }
 
-        .heap-info {
-            font-size: 1rem;
-            margin-bottom: 1rem;
-            text-align: center;
-        }
-
-        .task-list {
+        .usage-list {
             list-style: none;
             padding: 0;
-            margin-top: 1rem;
+            margin: 0;
         }
 
-        .task-list li {
-            font-size: 0.95rem;
+        .usage-list li {
+            font-size: 1rem;
             padding: 0.5rem 1rem;
-            margin-bottom: 0.5rem;
+            margin-top: 1rem;
             background-color: #1f2937;
-            border-left: 4px solid var(--accent-green);
+            border-left-style: solid;
+            border-left-color: var(--accent-green);
+            border-left-width: 4px;
             border-radius: 6px;
+            transition:
+                border-left-width 0.3s ease,
+                border-left-color 0.3s ease;
         }
     </style>
 </head>
@@ -86,12 +87,10 @@
     <h1>Digitoys System Monitor</h1>
     <div class="container">
         <canvas id="gauge"></canvas>
-        <div id="heap" class="heap-info">Loading heap info...</div>
-        <ul id="tasks" class="task-list"></ul>
+        <ul class="usage-list" id="metrics"></ul>
     </div>
 
     <script>
-        const status = document.getElementById("heap");
         const params = new URLSearchParams(window.location.search);
         const host = params.get("host") || window.location.origin;
         const url = host.replace(/\/$/, "") + "/system";
@@ -123,14 +122,18 @@
                 colorNumbers: "#eee",
                 colorNeedleStart: "#f85149",
                 colorNeedleEnd: "#f85149",
+                colorNeedleShadow: "rgba(0,0,0,0.2)",
+                borderShadowWidth: 0,
+                borders: false,
                 needle: true,
                 needleShadow: true,
+                needleType: "arrow",
                 animationDuration: 500,
                 animationRule: "linear",
                 fontUnits: "Poppins",
                 fontTitle: "Poppins",
                 fontNumbers: "Poppins",
-                fontNumbersSize: 32
+                fontNumbersSize: 36
             }).draw();
 
             fetchStats();
@@ -141,18 +144,34 @@
             try {
                 const resp = await fetch(url);
                 const data = await resp.json();
-                cpuGauge.value = data.cpu;
-                document.getElementById('heap').textContent = `Heap used: ${data.total_heap - data.free_heap} / ${data.total_heap} bytes`;
 
-                const list = document.getElementById('tasks');
+                cpuGauge.value = data.cpu;
+
+                const list = document.getElementById('metrics');
                 list.innerHTML = '';
-                data.tasks.forEach(t => {
-                    const li = document.createElement('li');
-                    li.textContent = `${t.name}: ${t.hwm} bytes HWM`;
-                    list.appendChild(li);
-                });
+
+                const li = document.createElement('li');
+
+                const used = data.total_heap - data.free_heap;
+                const percentUsed = Math.round((used / data.total_heap) * 100);
+                const barWidth = Math.max(4, Math.round((used / data.total_heap) * 200));
+
+                li.textContent = `Heap used: ${used} / ${data.total_heap} bytes (${percentUsed}%)`;
+                li.style.borderLeftWidth = `${barWidth}px`;
+
+                if (percentUsed >= 90) {
+                    li.style.borderLeftColor = 'var(--accent-red)';
+                } else if (percentUsed >= 70) {
+                    li.style.borderLeftColor = 'var(--accent-orange)';
+                } else {
+                    li.style.borderLeftColor = 'var(--accent-green)';
+                }
+
+                list.appendChild(li);
+
             } catch (e) {
-                document.getElementById('heap').textContent = '⚠ Failed to fetch stats';
+                const list = document.getElementById('metrics');
+                list.innerHTML = '<li style="border-left-color: var(--accent-red);">⚠ Failed to fetch stats</li>';
             }
         }
     </script>

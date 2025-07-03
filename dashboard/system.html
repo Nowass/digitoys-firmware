@@ -66,18 +66,34 @@
         }
 
         .usage-list li {
+            position: relative;
             font-size: 1rem;
-            padding: 0.5rem 1rem;
+            padding: 0.5rem 1rem 0.5rem 1rem;
             margin-top: 1rem;
             background-color: #1f2937;
-            border-left-style: solid;
-            border-left-color: var(--accent-green);
-            border-left-width: 4px;
             border-radius: 6px;
-            transition:
-                border-left-width 0.3s ease,
-                border-left-color 0.3s ease;
+            overflow: hidden;
         }
+
+        .usage-list li .bar {
+            position: absolute;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            width: 4px;
+            /* default/fallback */
+            background-color: var(--accent-green);
+            transition: width 0.3s ease, background-color 0.3s ease;
+            z-index: 1;
+            border-top: 4px solid transparent;
+            /* optional styling */
+        }
+
+        .usage-list li span {
+            position: relative;
+            z-index: 2;
+        }
+
 
         .cpu-status {
             display: flex;
@@ -197,18 +213,29 @@
                 const percentUsed = Math.round((used / data.total_heap) * 100);
                 const barWidth = Math.max(4, Math.round((used / data.total_heap) * 200));
 
-                li.textContent = `Heap used: ${used} / ${data.total_heap} bytes (${percentUsed}%)`;
-                li.style.borderLeftWidth = `${barWidth}px`;
+                const bar = document.createElement('div');
+                bar.className = 'bar';
+                bar.style.width = `${barWidth}px`;
 
                 if (percentUsed >= 90) {
-                    li.style.borderLeftColor = 'var(--accent-red)';
+                    bar.style.backgroundColor = 'var(--accent-red)';
+                    bar.style.borderTopColor = '#700';
                 } else if (percentUsed >= 70) {
-                    li.style.borderLeftColor = 'var(--accent-orange)';
+                    bar.style.backgroundColor = 'var(--accent-orange)';
+                    bar.style.borderTopColor = '#733';
                 } else {
-                    li.style.borderLeftColor = 'var(--accent-green)';
+                    bar.style.backgroundColor = 'var(--accent-green)';
+                    bar.style.borderTopColor = '#173';
                 }
 
+                const label = document.createElement('span');
+                label.textContent = `Heap used: ${used} / ${data.total_heap} bytes (${percentUsed}%)`;
+
+
+                li.appendChild(bar);
+                li.appendChild(label);
                 list.appendChild(li);
+
 
             } catch (e) {
                 const list = document.getElementById('metrics');

@@ -1,4 +1,5 @@
 #include "Monitor.hpp"
+#include "SystemMonitor.hpp"
 #include <esp_wifi.h>
 #include <esp_event.h>
 #include <esp_netif.h>
@@ -143,6 +144,13 @@ namespace monitor
             .handler = index_get_handler,
             .user_ctx = nullptr};
         ESP_ERROR_CHECK(httpd_register_uri_handler(server_, &index));
+
+        httpd_uri_t sys_uri = {
+            .uri = "/system",
+            .method = HTTP_GET,
+            .handler = SystemMonitor::stats_get_handler,
+            .user_ctx = nullptr};
+        ESP_ERROR_CHECK(httpd_register_uri_handler(server_, &sys_uri));
         ESP_LOGI(TAG, "HTTP server started");
         return ESP_OK;
     }

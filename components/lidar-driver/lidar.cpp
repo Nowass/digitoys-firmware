@@ -56,11 +56,17 @@ namespace lidar
         static_cast<LiDAR *>(arg)->taskLoop();
     }
 
-    ObstacleInfo LiDAR::getObstacleInfo() const
-    {
-        std::lock_guard<std::mutex> lg(info_mutex_);
-        return info_;
-    }
+ObstacleInfo LiDAR::getObstacleInfo() const
+{
+    std::lock_guard<std::mutex> lg(info_mutex_);
+    return info_;
+}
+
+float LiDAR::getDistance() const
+{
+    std::lock_guard<std::mutex> lg(info_mutex_);
+    return info_.distance;
+}
 
     ObstacleInfo LiDAR::evaluateFrame(const Points2D &frame) const
     {

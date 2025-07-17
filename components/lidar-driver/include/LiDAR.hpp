@@ -30,6 +30,7 @@ namespace lidar
         void shutdown();
 
         ObstacleInfo getObstacleInfo() const;
+        float getDistance() const;
 
     private:
         static void taskEntry(void *arg);

@@ -19,7 +19,7 @@ Although the API exposes `dataReady()`, the driver can be extended to trigger an
 ## Usage example
 
 ```cpp
-I2C::Config busCfg{ I2C_NUM_0, GPIO_NUM_8, GPIO_NUM_9, 400000 };
+I2C::Config busCfg{ I2C_NUM_0, GPIO_NUM_4, GPIO_NUM_5, 400000 };
 static I2C bus(busCfg);
 BMI270::Config accelCfg;
 BMI270 accel(bus, accelCfg);

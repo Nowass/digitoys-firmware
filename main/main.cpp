@@ -7,10 +7,17 @@
 #include "LiDAR.hpp"
 #include "Monitor.hpp"
 #include "SystemMonitor.hpp"
+#include "BMI270.hpp"
 #include <limits>
 
 static const char *TAG = "APP_MAIN";
 using namespace lidar;
+
+// BMI270 I2C bus and sensor instance (GPIO4 = SDA, GPIO5 = SCL)
+static I2C::Config bmiBusCfg{I2C_NUM_0, GPIO_NUM_4, GPIO_NUM_5, 400000};
+static I2C bmiBus{bmiBusCfg};
+static BMI270::Config bmiCfg{};
+static BMI270 accel{bmiBus, bmiCfg};
 
 // Control task context
 struct ControlContext
@@ -92,6 +99,31 @@ static void ControlTask(void *pv)
     }
 }
 
+// Simple task to validate BMI270 functionality after power-up
+static void BmiValidationTask(void *)
+{
+    ESP_LOGI("BMI270", "Initializing BMI270");
+    if (!accel.init())
+    {
+        ESP_LOGE("BMI270", "Initialization failed");
+        vTaskDelete(nullptr);
+    }
+    ESP_LOGI("BMI270", "Initialization successful");
+
+    for (int i = 0; i < 10; ++i)
+    {
+        if (accel.dataReady())
+        {
+            float ax = accel.getAccelLongitudinal();
+            ESP_LOGI("BMI270", "Accel X = %.2f m/s^2", ax);
+        }
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+
+    ESP_LOGI("BMI270", "Validation finished");
+    vTaskDelete(nullptr);
+}
+
 extern "C" void app_main()
 {
     // --- LiDAR hardware setup ---
@@ -127,6 +159,10 @@ extern "C" void app_main()
     static monitor::SystemMonitor sys_mon;
     ESP_ERROR_CHECK(sys_mon.start());
     ESP_LOGI(TAG, "System monitor started");
+
+    // --- Launch BMI270 validation task ---
+    xTaskCreate(BmiValidationTask, "BMI270Test", 4096, nullptr,
+                tskIDLE_PRIORITY + 1, nullptr);
 
     // --- Launch ControlTask ---
     static ControlContext ctx = {&lidar, &pwm_driver, &mon};

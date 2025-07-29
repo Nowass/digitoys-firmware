@@ -12,14 +12,14 @@ namespace monitor
         bool obstacle = false;
         bool warning = false;
         float distance = 0.0f;
-        float speed_est = 0.0f;
+        float motion_accel = 0.0f;  // Motion intensity as acceleration (m/s²)
     };
 
     class Monitor
     {
     public:
         esp_err_t start();
-        void updateTelemetry(bool obstacle, float distance, float speed_est, bool warning);
+        void updateTelemetry(bool obstacle, float distance, float motion_accel, bool warning);
 
     private:
         esp_err_t init_wifi();

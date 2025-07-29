@@ -22,14 +22,14 @@ namespace monitor
         return ESP_OK;
     }
 
-    void Monitor::updateTelemetry(bool obstacle, float distance, float speed_est, bool warning)
+    void Monitor::updateTelemetry(bool obstacle, float distance, float motion_accel, bool warning)
     {
         if (mutex_ && xSemaphoreTake(mutex_, portMAX_DELAY))
         {
             data_.obstacle = obstacle;
             data_.warning = warning;
             data_.distance = distance;
-            data_.speed_est = speed_est;
+            data_.motion_accel = motion_accel;
             xSemaphoreGive(mutex_);
         }
     }
@@ -77,8 +77,8 @@ namespace monitor
 
         char resp[128];
         int len = snprintf(resp, sizeof(resp),
-                           "{\"obstacle\":%s,\"distance\":%.2f,\"speed\":%.2f,\"warning\":%s}",
-                           data.obstacle ? "true" : "false", distance, data.speed_est, data.warning ? "true" : "false");
+                           "{\"obstacle\":%s,\"distance\":%.2f,\"motion\":%.2f,\"warning\":%s}",
+                           data.obstacle ? "true" : "false", distance, data.motion_accel, data.warning ? "true" : "false");
 
         httpd_resp_set_type(req, "application/json");
         httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");

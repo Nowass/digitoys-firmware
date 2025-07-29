@@ -40,17 +40,6 @@ Responsible for:
 
 ---
 
-## 🟢 BMI270 Driver
-
-An accelerometer driver built around the Bosch BMI270 sensor. It exposes the
-`IAccelSensor` interface and uses an I2C helper for bus access. The driver can be
-polled via `dataReady()` or extended to trigger a GPIO interrupt for minimal CPU
-usage.
-
-👉 [See full BMI270 API and class details](./bmi270-driver.md)
-
----
-
 ## 🔁 Runtime Integration
 
 All components are orchestrated by `ControlTask` from `main.cpp`, which:

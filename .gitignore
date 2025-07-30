@@ -17,3 +17,5 @@ build/
 
 reference-codebase/
 reference-codebase/*
+archive/
+archive/*

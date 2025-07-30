@@ -10,6 +10,7 @@
 
 #include "bmi270.hpp"
 #include "I2CConfig.hpp"
+#include "i2c-bus-priming.hpp"
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -43,74 +44,43 @@ namespace bmi270
             const char *TAG = "BMI270_PRODUCTION";
 
             ESP_LOGI(TAG, "=== BMI270 Production Initialization ===");
-            ESP_LOGI(TAG, "Using discovered priming sequence for reliable cold-boot");
+            ESP_LOGI(TAG, "Using generic I2C bus priming for reliable cold-boot");
 
             // Store the target configuration
             targetConfig_ = config;
 
-            // STEP 1: Priming sequence at 100kHz (expected to fail)
-            ESP_LOGI(TAG, "Step 1: I2C bus priming at 100kHz...");
+            // STEP 1: Generic I2C bus priming (sensor-independent)
+            ESP_LOGI(TAG, "Step 1: Generic I2C bus priming...");
 
+            PrimingResult primingResult = I2CBusPriming::primeI2CBus(config, config.slaveAddr, 0x00);
+
+            if (primingResult == PrimingResult::NO_PRIMING_NEEDED)
             {
-                // Create priming configuration
-                I2CConfig primingConfig = config;
-                primingConfig.clockSpeed = 100000; // Force 100kHz for priming
-
-                // Attempt priming initialization (in its own scope)
-                BMI270 primingSensor;
-                esp_err_t primingResult = primingSensor.init(primingConfig);
-
-                if (primingResult == ESP_OK)
-                {
-                    ESP_LOGI(TAG, "⚠ Unexpected: 100kHz worked immediately");
-                    ESP_LOGI(TAG, "Continuing with validation...");
-
-                    // Test to make sure it's really working
-                    uint8_t chipId;
-                    if (primingSensor.readChipId(chipId) == ESP_OK && chipId == constants::CHIP_ID_VALUE)
-                    {
-                        ESP_LOGI(TAG, "✓ 100kHz is fully functional - no priming needed");
-
-                        // If 100kHz works, use the slower speed for maximum reliability
-                        targetConfig_.clockSpeed = 100000;
-
-                        // Move the working sensor to our main sensor
-                        // Note: This is a simplified approach - in real production,
-                        // you might want to re-initialize at the target speed
-                        ESP_LOGI(TAG, "🎉 BMI270 ready at 100kHz (maximum reliability)");
-                        initialized_ = true;
-                        return ESP_OK;
-                    }
-                    else
-                    {
-                        ESP_LOGW(TAG, "100kHz init succeeded but chip ID failed - treating as priming");
-                    }
-                }
-                else
-                {
-                    ESP_LOGI(TAG, "✓ Expected: 100kHz failed (%s) - bus is now primed",
-                             esp_err_to_name(primingResult));
-                }
-
-                // Sensor destructor called here automatically
+                ESP_LOGI(TAG, "I2C bus was already working - adjusting to 100kHz for maximum reliability");
+                targetConfig_.clockSpeed = 100000; // Use the slower, more reliable speed
+            }
+            else if (primingResult == PrimingResult::FAILED)
+            {
+                ESP_LOGE(TAG, "✗ Generic I2C bus priming failed");
+                return ESP_FAIL;
+            }
+            else
+            {
+                ESP_LOGI(TAG, "✓ Generic I2C bus priming completed successfully");
             }
 
-            // STEP 2: Critical cleanup delay (discovered timing requirement)
-            ESP_LOGI(TAG, "Step 2: 100ms cleanup delay for complete I2C reset...");
-            vTaskDelay(pdMS_TO_TICKS(100));
-
-            // STEP 3: Production initialization at target speed
-            ESP_LOGI(TAG, "Step 3: Production initialization at %lu Hz...", config.clockSpeed);
+            // STEP 2: BMI270 initialization at target speed
+            ESP_LOGI(TAG, "Step 2: BMI270 initialization at %lu Hz...", targetConfig_.clockSpeed);
 
             esp_err_t result = sensor_.init(targetConfig_);
             if (result != ESP_OK)
             {
-                ESP_LOGE(TAG, "✗ Production initialization failed: %s", esp_err_to_name(result));
+                ESP_LOGE(TAG, "✗ BMI270 initialization failed: %s", esp_err_to_name(result));
                 return result;
             }
 
-            // STEP 4: Validation of successful initialization
-            ESP_LOGI(TAG, "Step 4: Validating stable operation...");
+            // STEP 3: Validation of successful initialization
+            ESP_LOGI(TAG, "Step 3: Validating stable BMI270 operation...");
 
             // Test chip ID multiple times for stability
             int successCount = 0;
@@ -146,7 +116,7 @@ namespace bmi270
                 ESP_LOGI(TAG, "  Configuration: %lu Hz, SDA=%d, SCL=%d, Addr=0x%02X",
                          targetConfig_.clockSpeed, targetConfig_.sdaPin,
                          targetConfig_.sclPin, targetConfig_.slaveAddr);
-                ESP_LOGI(TAG, "  Priming sequence: Applied successfully");
+                ESP_LOGI(TAG, "  Generic I2C priming: Applied successfully");
                 ESP_LOGI(TAG, "  Status: Ready for production use");
                 ESP_LOGI(TAG, "");
 

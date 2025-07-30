@@ -97,8 +97,8 @@ extern "C" void app_main()
 {
     ESP_LOGI(TAG, "=== DigiToys Firmware Starting ===");
 
-    // --- BMI270 IMU Sensor Production Test ---
-    ESP_LOGI(TAG, "Initializing BMI270 with production-ready priming sequence...");
+    // --- BMI270 IMU Sensor with Generic I2C Bus Priming ---
+    ESP_LOGI(TAG, "Initializing BMI270 with generic I2C bus priming...");
 
     static bmi270::BMI270Production bmi270Sensor;
     esp_err_t bmi_result = bmi270::initProductionBMI270(bmi270Sensor);
@@ -106,23 +106,38 @@ extern "C" void app_main()
     if (bmi_result == ESP_OK)
     {
         ESP_LOGI(TAG, "🎉 BMI270 production initialization SUCCESSFUL!");
-        ESP_LOGI(TAG, "✓ BMI270 is ready for integration with other systems");
+        ESP_LOGI(TAG, "✓ Generic I2C bus priming enabled reliable sensor communication");
 
-        // Quick functionality test
+        // Validation: Read BMI270 chip ID to verify the generic priming worked
         uint8_t chipId;
         if (bmi270Sensor.getSensor().readChipId(chipId) == ESP_OK)
         {
-            ESP_LOGI(TAG, "✓ Final verification: Chip ID = 0x%02X", chipId);
+            ESP_LOGI(TAG, "✓ Post-priming validation: BMI270 Chip ID = 0x%02X (expected: 0x24)", chipId);
+            if (chipId == 0x24)
+            {
+                ESP_LOGI(TAG, "✓ Generic I2C priming successfully enabled BMI270 communication!");
+            }
+            else
+            {
+                ESP_LOGW(TAG, "⚠ Unexpected chip ID - generic priming may need adjustment");
+            }
         }
+        else
+        {
+            ESP_LOGW(TAG, "⚠ Could not read chip ID for validation");
+        }
+
+        ESP_LOGI(TAG, "✓ BMI270 is ready for integration with other systems");
     }
     else
     {
         ESP_LOGW(TAG, "❌ BMI270 production initialization FAILED: %s", esp_err_to_name(bmi_result));
+        ESP_LOGW(TAG, "Generic I2C priming may need further refinement");
         ESP_LOGW(TAG, "Continuing with other systems - BMI270 will be unavailable");
     }
 
     ESP_LOGI(TAG, "");
-    ESP_LOGI(TAG, "=== BMI270 Production Integration Completed ===");
+    ESP_LOGI(TAG, "=== Generic I2C Bus Priming Integration Completed ===");
     ESP_LOGI(TAG, "=== Proceeding with system integration ===");
     ESP_LOGI(TAG, "");
 

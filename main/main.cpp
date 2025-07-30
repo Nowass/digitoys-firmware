@@ -7,6 +7,7 @@
 #include "LiDAR.hpp"
 #include "Monitor.hpp"
 #include "SystemMonitor.hpp"
+#include "bmi270-basic-test.hpp" // BMI270 Step 1 test
 #include <limits>
 
 static const char *TAG = "APP_MAIN";
@@ -94,6 +95,21 @@ static void ControlTask(void *pv)
 
 extern "C" void app_main()
 {
+    ESP_LOGI(TAG, "=== DigiToys Firmware Starting ===");
+
+    // --- BMI270 IMU Sensor Test (Step 1) ---
+    ESP_LOGI(TAG, "Testing BMI270 sensor...");
+    esp_err_t bmi_result = bmi270::runBasicTest();
+    if (bmi_result == ESP_OK)
+    {
+        ESP_LOGI(TAG, "✓ BMI270 sensor test passed");
+    }
+    else
+    {
+        ESP_LOGW(TAG, "⚠ BMI270 sensor test failed: %s", esp_err_to_name(bmi_result));
+        ESP_LOGW(TAG, "Continuing with other systems...");
+    }
+
     // --- LiDAR hardware setup ---
     LiDARConfig cfg = {
         .uartPort = UART_NUM_1,
@@ -102,7 +118,7 @@ extern "C" void app_main()
         .dmaBufferLen = 2048,
         .angleMinDeg = 347.5f,
         .angleMaxDeg = 12.5f,
-        .motorPin = GPIO_NUM_4,
+        .motorPin = GPIO_NUM_6,
         .motorChannel = LEDC_CHANNEL_0,
         .motorFreqHz = 50000,
         .motorDutyPct = 50};

@@ -7,7 +7,7 @@
 #include "LiDAR.hpp"
 #include "Monitor.hpp"
 #include "SystemMonitor.hpp"
-#include "bmi270-production.hpp" // BMI270 production driver with priming
+#include "bmi270-simple.hpp" // Simplified BMI270 production driver
 #include <limits>
 
 static const char *TAG = "APP_MAIN";
@@ -97,29 +97,29 @@ extern "C" void app_main()
 {
     ESP_LOGI(TAG, "=== DigiToys Firmware Starting ===");
 
-    // --- BMI270 IMU Sensor with Generic I2C Bus Priming ---
-    ESP_LOGI(TAG, "Initializing BMI270 with generic I2C bus priming...");
+    // --- BMI270 IMU Sensor with Consolidated I2C HAL ---
+    ESP_LOGI(TAG, "Initializing BMI270 with consolidated I2C HAL and automatic priming...");
 
-    static bmi270::BMI270Production bmi270Sensor;
+    static bmi270::BMI270 bmi270Sensor;
     esp_err_t bmi_result = bmi270::initProductionBMI270(bmi270Sensor);
 
     if (bmi_result == ESP_OK)
     {
         ESP_LOGI(TAG, "🎉 BMI270 production initialization SUCCESSFUL!");
-        ESP_LOGI(TAG, "✓ Generic I2C bus priming enabled reliable sensor communication");
+        ESP_LOGI(TAG, "✓ Consolidated I2C HAL with priming enabled reliable sensor communication");
 
-        // Validation: Read BMI270 chip ID to verify the generic priming worked
+        // Validation: Read BMI270 chip ID to verify the consolidated approach worked
         uint8_t chipId;
-        if (bmi270Sensor.getSensor().readChipId(chipId) == ESP_OK)
+        if (bmi270Sensor.readChipId(chipId) == ESP_OK)
         {
-            ESP_LOGI(TAG, "✓ Post-priming validation: BMI270 Chip ID = 0x%02X (expected: 0x24)", chipId);
+            ESP_LOGI(TAG, "✓ Post-initialization validation: BMI270 Chip ID = 0x%02X (expected: 0x24)", chipId);
             if (chipId == 0x24)
             {
-                ESP_LOGI(TAG, "✓ Generic I2C priming successfully enabled BMI270 communication!");
+                ESP_LOGI(TAG, "✓ Consolidated I2C HAL successfully enabled BMI270 communication!");
             }
             else
             {
-                ESP_LOGW(TAG, "⚠ Unexpected chip ID - generic priming may need adjustment");
+                ESP_LOGW(TAG, "⚠ Unexpected chip ID - consolidated HAL may need adjustment");
             }
         }
         else
@@ -132,12 +132,12 @@ extern "C" void app_main()
     else
     {
         ESP_LOGW(TAG, "❌ BMI270 production initialization FAILED: %s", esp_err_to_name(bmi_result));
-        ESP_LOGW(TAG, "Generic I2C priming may need further refinement");
+        ESP_LOGW(TAG, "Consolidated I2C HAL may need further refinement");
         ESP_LOGW(TAG, "Continuing with other systems - BMI270 will be unavailable");
     }
 
     ESP_LOGI(TAG, "");
-    ESP_LOGI(TAG, "=== Generic I2C Bus Priming Integration Completed ===");
+    ESP_LOGI(TAG, "=== Consolidated I2C HAL Integration Completed ===");
     ESP_LOGI(TAG, "=== Proceeding with system integration ===");
     ESP_LOGI(TAG, "");
 

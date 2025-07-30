@@ -272,4 +272,169 @@ namespace bmi270
         }
     }
 
+    esp_err_t I2C_HAL::initWithPriming(const I2CConfig &config,
+                                       uint8_t deviceAddr,
+                                       uint8_t testRegAddr,
+                                       bool enablePriming)
+    {
+        const char *TAG = "I2C_HAL_PRIMING";
+
+        ESP_LOGI(TAG, "=== I2C HAL Production Initialization ===");
+        ESP_LOGI(TAG, "Target: %lu Hz, SDA=%d, SCL=%d, Addr=0x%02X",
+                 config.clockSpeed, config.sdaPin, config.sclPin, config.slaveAddr);
+
+        // Use config slave address if deviceAddr not specified
+        uint8_t primingAddr = (deviceAddr == 0xFF) ? config.slaveAddr : deviceAddr;
+
+        if (enablePriming)
+        {
+            ESP_LOGI(TAG, "Step 1: Applying generic I2C bus priming...");
+
+            PrimingResult primingResult = primeI2CBus(config, primingAddr, testRegAddr);
+
+            if (primingResult == PrimingResult::FAILED)
+            {
+                ESP_LOGE(TAG, "✗ I2C bus priming failed");
+                return ESP_FAIL;
+            }
+            else if (primingResult == PrimingResult::NO_PRIMING_NEEDED)
+            {
+                ESP_LOGI(TAG, "✓ I2C bus was already working - no priming needed");
+            }
+            else
+            {
+                ESP_LOGI(TAG, "✓ I2C bus priming completed successfully");
+            }
+        }
+        else
+        {
+            ESP_LOGI(TAG, "Step 1: Skipping I2C bus priming (disabled)");
+        }
+
+        // Step 2: Standard initialization
+        ESP_LOGI(TAG, "Step 2: Standard I2C HAL initialization...");
+        esp_err_t result = init(config);
+
+        if (result == ESP_OK)
+        {
+            ESP_LOGI(TAG, "🎉 I2C HAL Production Initialization SUCCESSFUL!");
+            ESP_LOGI(TAG, "  Configuration: %lu Hz, SDA=%d, SCL=%d, Addr=0x%02X",
+                     config.clockSpeed, config.sdaPin, config.sclPin, config.slaveAddr);
+            if (enablePriming)
+            {
+                ESP_LOGI(TAG, "  Generic I2C priming: Applied successfully");
+            }
+            ESP_LOGI(TAG, "  Status: Ready for production use");
+        }
+        else
+        {
+            ESP_LOGE(TAG, "✗ I2C HAL initialization failed: %s", esp_err_to_name(result));
+        }
+
+        return result;
+    }
+
+    PrimingResult I2C_HAL::primeI2CBus(const I2CConfig &config,
+                                       uint8_t deviceAddr,
+                                       uint8_t testRegAddr)
+    {
+        const char *TAG = "I2C_BUS_PRIMING";
+
+        ESP_LOGI(TAG, "=== Generic I2C Bus Priming ===");
+        ESP_LOGI(TAG, "Target: %lu Hz, Device: 0x%02X, SDA=%d, SCL=%d",
+                 config.clockSpeed, deviceAddr, config.sdaPin, config.sclPin);
+
+        // STEP 1: Priming sequence at 100kHz (expected to fail)
+        ESP_LOGI(TAG, "Step 1: I2C bus priming at 100kHz...");
+
+        {
+            // Create priming configuration at 100kHz
+            I2CConfig primingConfig = config;
+            primingConfig.clockSpeed = 100000; // Force 100kHz for priming
+            primingConfig.slaveAddr = deviceAddr;
+
+            // Attempt priming operations (in its own scope for clean destruction)
+            I2C_HAL primingHal;
+            esp_err_t initResult = primingHal.init(primingConfig);
+
+            if (initResult == ESP_OK)
+            {
+                ESP_LOGI(TAG, "✓ I2C HAL initialized at 100kHz");
+
+                // Perform multiple dummy operations to prime the bus
+                esp_err_t pingResult = primingHal.ping();
+
+                if (pingResult == ESP_OK)
+                {
+                    ESP_LOGI(TAG, "⚠ Unexpected: Device responds at 100kHz immediately");
+
+                    // Try a dummy read operation to further test
+                    uint8_t dummyData;
+                    esp_err_t readResult = primingHal.readByte(testRegAddr, dummyData);
+
+                    if (readResult == ESP_OK)
+                    {
+                        ESP_LOGI(TAG, "✓ 100kHz is fully functional - no priming needed");
+                        ESP_LOGI(TAG, "Dummy read from reg 0x%02X: 0x%02X", testRegAddr, dummyData);
+                        return PrimingResult::NO_PRIMING_NEEDED;
+                    }
+                    else
+                    {
+                        ESP_LOGI(TAG, "✓ Ping succeeded but read failed - treating as priming");
+                    }
+                }
+                else
+                {
+                    ESP_LOGI(TAG, "✓ Expected: 100kHz ping failed (%s) - bus is now primed",
+                             esp_err_to_name(pingResult));
+                }
+
+                // Try a few more dummy operations for thorough priming
+                performDummyOperations(primingHal, testRegAddr);
+            }
+            else
+            {
+                ESP_LOGI(TAG, "✓ Expected: 100kHz init failed (%s) - bus priming attempted",
+                         esp_err_to_name(initResult));
+            }
+
+            // HAL destructor called here automatically - this is critical for the priming
+        }
+
+        // STEP 2: Critical cleanup delay (discovered timing requirement)
+        ESP_LOGI(TAG, "Step 2: 100ms cleanup delay for complete I2C reset...");
+        vTaskDelay(pdMS_TO_TICKS(100));
+
+        ESP_LOGI(TAG, "✓ I2C bus priming sequence completed");
+        ESP_LOGI(TAG, "Ready for production initialization at %lu Hz", config.clockSpeed);
+
+        return PrimingResult::SUCCESS;
+    }
+
+    void I2C_HAL::performDummyOperations(I2C_HAL &hal, uint8_t testRegAddr)
+    {
+        const char *TAG = "I2C_BUS_PRIMING";
+
+        // Perform several dummy operations to thoroughly exercise the I2C bus
+        ESP_LOGD(TAG, "Performing additional dummy operations...");
+
+        // Dummy ping operations
+        for (int i = 0; i < 3; i++)
+        {
+            hal.ping();
+            vTaskDelay(pdMS_TO_TICKS(1));
+        }
+
+        // Dummy read operations at different register addresses
+        uint8_t dummyData;
+        hal.readByte(testRegAddr, dummyData);
+        hal.readByte(testRegAddr + 1, dummyData);
+        hal.readByte(0xFF, dummyData); // Try invalid register to exercise error paths
+
+        // Small delay between operations
+        vTaskDelay(pdMS_TO_TICKS(5));
+
+        ESP_LOGD(TAG, "Dummy operations completed");
+    }
+
 } // namespace bmi270

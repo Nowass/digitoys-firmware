@@ -23,13 +23,13 @@ namespace bmi270
 
     esp_err_t BMI270::init(const I2CConfig &config)
     {
-        ESP_LOGI(TAG, "Initializing BMI270 sensor with proper power-on sequence");
+        ESP_LOGI(TAG, "Initializing BMI270 sensor with consolidated I2C HAL and automatic priming");
 
-        // Step 1: Initialize I2C communication
-        esp_err_t err = i2c_.init(config);
+        // Step 1: Initialize I2C communication with automatic priming
+        esp_err_t err = i2c_.initWithPriming(config, config.slaveAddr, registers::CHIP_ID, true);
         if (err != ESP_OK)
         {
-            ESP_LOGE(TAG, "Failed to initialize I2C HAL: %s", esp_err_to_name(err));
+            ESP_LOGE(TAG, "Failed to initialize I2C HAL with priming: %s", esp_err_to_name(err));
             return err;
         }
 

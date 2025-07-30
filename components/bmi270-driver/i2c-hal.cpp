@@ -1,5 +1,7 @@
 #include "i2c-hal.hpp"
 #include <esp_log.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 #include <cstring>
 
 namespace bmi270
@@ -23,6 +25,8 @@ namespace bmi270
         {
             ESP_LOGW(TAG, "I2C HAL already initialized, deinitializing first");
             deinit();
+            // Small delay to ensure I2C driver is fully cleaned up
+            vTaskDelay(pdMS_TO_TICKS(10));
         }
 
         port_ = cfg.port;

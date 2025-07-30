@@ -7,7 +7,7 @@
 #include "LiDAR.hpp"
 #include "Monitor.hpp"
 #include "SystemMonitor.hpp"
-#include "bmi270-basic-test.hpp" // BMI270 Step 1 test
+#include "bmi270-production.hpp" // BMI270 production driver with priming
 #include <limits>
 
 static const char *TAG = "APP_MAIN";
@@ -97,18 +97,36 @@ extern "C" void app_main()
 {
     ESP_LOGI(TAG, "=== DigiToys Firmware Starting ===");
 
-    // --- BMI270 IMU Sensor Test (Step 1) ---
-    ESP_LOGI(TAG, "Testing BMI270 sensor...");
-    esp_err_t bmi_result = bmi270::runBasicTest();
+    // --- BMI270 IMU Sensor Production Test ---
+    ESP_LOGI(TAG, "Initializing BMI270 with production-ready priming sequence...");
+
+    static bmi270::BMI270Production bmi270Sensor;
+    esp_err_t bmi_result = bmi270::initProductionBMI270(bmi270Sensor);
+
     if (bmi_result == ESP_OK)
     {
-        ESP_LOGI(TAG, "✓ BMI270 sensor test passed");
+        ESP_LOGI(TAG, "🎉 BMI270 production initialization SUCCESSFUL!");
+        ESP_LOGI(TAG, "✓ BMI270 is ready for integration with other systems");
+
+        // Quick functionality test
+        uint8_t chipId;
+        if (bmi270Sensor.getSensor().readChipId(chipId) == ESP_OK)
+        {
+            ESP_LOGI(TAG, "✓ Final verification: Chip ID = 0x%02X", chipId);
+        }
     }
     else
     {
-        ESP_LOGW(TAG, "⚠ BMI270 sensor test failed: %s", esp_err_to_name(bmi_result));
-        ESP_LOGW(TAG, "Continuing with other systems...");
+        ESP_LOGW(TAG, "❌ BMI270 production initialization FAILED: %s", esp_err_to_name(bmi_result));
+        ESP_LOGW(TAG, "Continuing with other systems - BMI270 will be unavailable");
     }
+
+    ESP_LOGI(TAG, "");
+    ESP_LOGI(TAG, "=== BMI270 Production Integration Completed ===");
+    ESP_LOGI(TAG, "=== Proceeding with system integration ===");
+    ESP_LOGI(TAG, "");
+
+    // Continue with other systems - BMI270 priming sequence allows this now
 
     // --- LiDAR hardware setup ---
     LiDARConfig cfg = {

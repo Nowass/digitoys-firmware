@@ -125,6 +125,72 @@ namespace bmi270
          * @param delayMs Delay time in milliseconds
          */
         void delay(uint32_t delayMs) const;
+
+        /**
+         * @brief Check internal status register for initialization readiness
+         * @return ESP_OK if internal status is ready, error code otherwise
+         */
+        esp_err_t checkInternalStatus();
+
+        /**
+         * @brief Initialize power management settings
+         * @return ESP_OK on success, error code otherwise
+         */
+        esp_err_t initPowerManagement();
+
+        /**
+         * @brief Initialize basic sensor configuration
+         * @return ESP_OK on success, error code otherwise
+         */
+        esp_err_t initBasicConfiguration();
+
+        /**
+         * @brief Perform final system validation
+         * @return ESP_OK if validation passes, error code otherwise
+         */
+        esp_err_t performFinalValidation();
+
+        /**
+         * @brief Perform BMI2 sensor initialization (equivalent to bmi2_sec_init)
+         *
+         * This method follows the exact sequence from the Bosch reference implementation:
+         * 1. Set APS flag as after reset, the sensor is on advance power save mode
+         * 2. Read chip-id of the BMI2 sensor
+         * 3. Validate chip-id
+         * 4. Assign resolution to the structure
+         * 5. Set manual enable flag
+         * 6. Set default values for axis re-mapping
+         * 7. Perform soft-reset to bring all register values to their default values
+         * 8. Write configuration file
+         *
+         * @return ESP_OK on success, error code otherwise
+         */
+        esp_err_t performBMI2Init();
+
+        /**
+         * @brief Write BMI270 configuration file to device
+         *
+         * This method implements the configuration file upload sequence:
+         * 1. Prepare device for configuration upload
+         * 2. Upload configuration data in chunks
+         * 3. Verify configuration load status
+         *
+         * @return ESP_OK on success, error code otherwise
+         */
+        esp_err_t writeConfigFile();
+
+        /**
+         * @brief Perform soft reset with configuration file upload
+         *
+         * This method implements the complete soft reset sequence:
+         * 1. Send soft reset command
+         * 2. Wait for reset completion
+         * 3. Write configuration file
+         * 4. Verify configuration load
+         *
+         * @return ESP_OK on success, error code otherwise
+         */
+        esp_err_t performSoftReset();
     };
 
 } // namespace bmi270

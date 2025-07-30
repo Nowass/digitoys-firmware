@@ -5,6 +5,10 @@
 #include <esp_err.h>
 #include <cstdint>
 
+// Forward declarations for BMI270 configuration
+extern const uint8_t bmi270_config_file[];
+extern const size_t bmi270_config_file_size;
+
 namespace bmi270
 {
 
@@ -68,9 +72,53 @@ namespace bmi270
      */
     namespace constants
     {
-        constexpr uint8_t CHIP_ID_VALUE = 0x24;  // Expected chip ID value
+        // BMI270 specific chip identification
+        constexpr uint8_t BMI270_CHIP_ID = 0x24; // BMI270 chip ID value
+        constexpr uint8_t CHIP_ID_VALUE = 0x24;  // Expected chip ID value (alias for compatibility)
         constexpr uint8_t SOFT_RESET_CMD = 0xB6; // Soft reset command
         constexpr uint8_t FIFO_FLUSH_CMD = 0xB0; // FIFO flush command
+
+        // BMI270 feature enable flags
+        constexpr uint32_t BMI2_GYRO_CROSS_SENS_ENABLE = 0x01; // Gyroscope cross sensitivity enable
+        constexpr uint32_t BMI2_CRT_RTOSK_ENABLE = 0x02;       // CRT RTOSK enable
+
+        // Initialization control constants
+        constexpr uint8_t INIT_CTRL_LOAD_CONFIG_FILE = 0x01; // Load configuration file
+        constexpr uint8_t CONFIG_LOAD_SUCCESS = 0x01;        // Configuration load success status
+        constexpr uint8_t CONFIG_LOAD_STATUS_MASK = 0x03;    // Configuration load status mask
+
+        // Advanced power save mode
+        constexpr uint8_t APS_DISABLE = 0x00; // Disable advanced power save
+        constexpr uint8_t APS_ENABLE = 0x01;  // Enable advanced power save
+
+        // Power management constants
+        constexpr uint8_t PWR_CONF_ADV_POWER_SAVE = 0x01; // Advanced power save mode
+        constexpr uint8_t PWR_CONF_FIFO_SELF_WAKE = 0x02; // FIFO self wake-up
+        constexpr uint8_t PWR_CONF_FUP_EN = 0x04;         // Fast power-up enable
+
+        constexpr uint8_t PWR_CTRL_AUX_EN = 0x01;  // Auxiliary sensor enable
+        constexpr uint8_t PWR_CTRL_GYR_EN = 0x02;  // Gyroscope enable
+        constexpr uint8_t PWR_CTRL_ACC_EN = 0x04;  // Accelerometer enable
+        constexpr uint8_t PWR_CTRL_TEMP_EN = 0x08; // Temperature sensor enable
+
+        // Internal status bits
+        constexpr uint8_t INTERNAL_STATUS_MSG = 0x01;      // Message status
+        constexpr uint8_t INTERNAL_STATUS_NOT_INIT = 0x00; // Not initialized
+        constexpr uint8_t INTERNAL_STATUS_INIT_OK = 0x01;  // Initialization OK
+        constexpr uint8_t INTERNAL_STATUS_INIT_ERR = 0x02; // Initialization error
+        constexpr uint8_t INTERNAL_STATUS_DRV_ERR = 0x03;  // Driver error
+
+        // Basic accelerometer configuration values
+        constexpr uint8_t ACC_CONF_ODR_25HZ = 0x05;   // 25 Hz ODR
+        constexpr uint8_t ACC_CONF_ODR_50HZ = 0x06;   // 50 Hz ODR
+        constexpr uint8_t ACC_CONF_ODR_100HZ = 0x07;  // 100 Hz ODR
+        constexpr uint8_t ACC_CONF_BWP_NORMAL = 0x20; // Normal bandwidth
+        constexpr uint8_t ACC_CONF_PERF_MODE = 0x80;  // Performance mode
+
+        constexpr uint8_t ACC_RANGE_2G = 0x00;  // ±2g range
+        constexpr uint8_t ACC_RANGE_4G = 0x01;  // ±4g range
+        constexpr uint8_t ACC_RANGE_8G = 0x02;  // ±8g range
+        constexpr uint8_t ACC_RANGE_16G = 0x03; // ±16g range
     }
 
     /**

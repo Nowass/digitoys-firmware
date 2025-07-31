@@ -19,3 +19,5 @@ reference-codebase/
 reference-codebase/*
 archive/
 archive/*
+managed_components/
+managed_components/*

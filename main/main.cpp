@@ -3,6 +3,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include "adas_pwm_driver.hpp"
+#include "bmi270_sensor.hpp"
 #include "LiDARConfig.hpp"
 #include "LiDAR.hpp"
 #include "Monitor.hpp"
@@ -94,6 +95,34 @@ static void ControlTask(void *pv)
 
 extern "C" void app_main()
 {
+    // --- BMI270 sensor test ---
+    static bmi270_sensor::Bmi270Sensor bmi;
+    if (bmi.init() == ESP_OK)
+    {
+        ESP_LOGI(TAG, "BMI270 initialized");
+        while (true)
+        {
+            float ax, ay, az;
+            if (bmi.read_accel(ax, ay, az) == ESP_OK)
+            {
+                ESP_LOGI(TAG, "Accel X: %.2f m/s^2 Y: %.2f m/s^2 Z: %.2f m/s^2", ax, ay, az);
+            }
+            else
+            {
+                ESP_LOGE(TAG, "Failed to read accel data");
+            }
+            vTaskDelay(pdMS_TO_TICKS(500));
+        }
+    }
+    else
+    {
+        ESP_LOGE(TAG, "BMI270 initialization failed");
+        while (true)
+        {
+            vTaskDelay(pdMS_TO_TICKS(1000));
+        }
+    }
+
     // --- LiDAR hardware setup ---
     LiDARConfig cfg = {
         .uartPort = UART_NUM_1,

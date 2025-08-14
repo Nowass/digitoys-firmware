@@ -5,6 +5,9 @@
 #include "adas_pwm_driver.hpp"
 #include "LiDARConfig.hpp"
 #include "LiDAR.hpp"
+#include "Monitor.hpp"
+#include "SystemMonitor.hpp"
+#include <limits>
 
 static const char *TAG = "APP_MAIN";
 using namespace lidar;
@@ -14,6 +17,7 @@ struct ControlContext
 {
     lidar::LiDAR *lidar;
     adas::PwmDriver *pwm_driver;
+    monitor::Monitor *mon;
 };
 
 // ControlTask: reads LiDAR frames and switches passthrough vs. brake
@@ -24,25 +28,63 @@ static void ControlTask(void *pv)
     adas::PwmDriver &driver = *ctx->pwm_driver;
 
     bool obstacle_state = false;
-    constexpr float BRAKE = 0.12f;
+    bool warning_state = false;
+    float last_distance = std::numeric_limits<float>::infinity();
+    float slowdown_duty = 0.0f;
+
+    constexpr float BRAKE = 0.058f;     // full brake duty
+    constexpr float ZERO_SPEED = 0.09f; // neutral duty
+    constexpr float DUTY_STEP = 0.005f;
 
     while (true)
     {
         auto info = lidar.getObstacleInfo();
+        ctx->mon->updateTelemetry(info.obstacle, info.distance, driver.lastDuty(0), info.warning);
         if (driver.isThrottlePressed(0))
         {
-            if (info.obstacle && !obstacle_state)
+            if (info.obstacle)
             {
-                obstacle_state = true;
-                ESP_LOGW(TAG, "Obstacle! Applying brake duty");
-                driver.pausePassthrough(0);
-                driver.setDuty(0, 0.09f);
+                if (!obstacle_state)
+                {
+                    obstacle_state = true;
+                    warning_state = false;
+                    ESP_LOGW(TAG, "Obstacle! Applying brake duty");
+                    driver.pausePassthrough(0);
+                    driver.setDuty(0, BRAKE);
+                }
             }
-            else if (!info.obstacle && obstacle_state)
+            else if (info.warning)
             {
                 obstacle_state = false;
-                ESP_LOGI(TAG, "Obstacle cleared. Resuming passthrough");
-                driver.resumePassthrough(0);
+                if (!warning_state)
+                {
+                    warning_state = true;
+                    slowdown_duty = driver.lastDuty(0);
+                    last_distance = info.distance;
+                    driver.pausePassthrough(0);
+                    ESP_LOGI(TAG, "Warning detected. Starting slowdown");
+                }
+                else
+                {
+                    if (info.distance < last_distance && slowdown_duty > ZERO_SPEED)
+                    {
+                        slowdown_duty -= DUTY_STEP;
+                        if (slowdown_duty < ZERO_SPEED)
+                            slowdown_duty = ZERO_SPEED;
+                        driver.setDuty(0, slowdown_duty);
+                    }
+                    last_distance = info.distance;
+                }
+            }
+            else
+            {
+                if (obstacle_state || warning_state)
+                {
+                    obstacle_state = false;
+                    warning_state = false;
+                    ESP_LOGI(TAG, "Path clear. Resuming passthrough");
+                    driver.resumePassthrough(0);
+                }
             }
         }
 
@@ -60,8 +102,8 @@ extern "C" void app_main()
         .dmaBufferLen = 2048,
         .angleMinDeg = 347.5f,
         .angleMaxDeg = 12.5f,
-        .motorPin = GPIO_NUM_4,
-        .motorChannel = LEDC_CHANNEL_0,
+        .motorPin = GPIO_NUM_3,
+        .motorChannel = LEDC_CHANNEL_1,
         .motorFreqHz = 50000,
         .motorDutyPct = 50};
     static lidar::LiDAR lidar{cfg};
@@ -76,8 +118,18 @@ extern "C" void app_main()
     ESP_ERROR_CHECK(pwm_driver.initialize());
     ESP_LOGI(TAG, "PWM passthrough running");
 
+    // --- Telemetry monitor ---
+    static monitor::Monitor mon;
+    ESP_ERROR_CHECK(mon.start());
+    ESP_LOGI(TAG, "Monitor started");
+
+    // --- System monitor ---
+    static monitor::SystemMonitor sys_mon;
+    ESP_ERROR_CHECK(sys_mon.start());
+    ESP_LOGI(TAG, "System monitor started");
+
     // --- Launch ControlTask ---
-    static ControlContext ctx = {&lidar, &pwm_driver};
+    static ControlContext ctx = {&lidar, &pwm_driver, &mon};
     BaseType_t rc = xTaskCreate(
         ControlTask, "ControlTask", 8192,
         &ctx, tskIDLE_PRIORITY + 2, nullptr);

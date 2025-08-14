@@ -57,6 +57,7 @@ namespace adas
         std::vector<rmt_symbol_word_t> buffer_;
         DutyCallback callback_;
         static constexpr size_t DEFAULT_BUFFER = 64;
+        bool running_ = false;
     };
 
     class LedcOutput : public IPwmChannel
@@ -97,6 +98,7 @@ namespace adas
         std::unique_ptr<RmtInput> input_;
         std::unique_ptr<LedcOutput> output_;
         float last_duty_ = 0.0f;
+        bool running_ = false;
     };
 
     class PwmDriver
@@ -124,6 +126,14 @@ namespace adas
             if (idx >= channels_.size())
                 return ESP_ERR_INVALID_ARG;
             return channels_[idx]->start(); // leaves LEDC untouched
+        }
+
+        /// Return last duty captured for channel idx
+        float lastDuty(size_t idx) const
+        {
+            if (idx >= channels_.size())
+                return 0.0f;
+            return channels_[idx]->lastDuty();
         }
 
         /// Return true if throttle channel idx is pressed outside neutral band

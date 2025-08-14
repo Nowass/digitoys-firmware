@@ -8,37 +8,42 @@
 #include <freertos/task.h>
 #include <esp_err.h>
 #include <mutex>
+#include <limits>
 
-namespace lidar {
+namespace lidar
+{
 
-struct ObstacleInfo {
-    bool obstacle = false;
-    bool warning = false;
-};
+    struct ObstacleInfo
+    {
+        bool obstacle = false;
+        bool warning = false;
+        float distance = std::numeric_limits<float>::infinity();
+    };
 
-class LiDAR {
-public:
-    explicit LiDAR(const LiDARConfig &cfg);
-    ~LiDAR();
+    class LiDAR
+    {
+    public:
+        explicit LiDAR(const LiDARConfig &cfg);
+        ~LiDAR();
 
-    esp_err_t initialize();
-    void shutdown();
+        esp_err_t initialize();
+        void shutdown();
 
-    ObstacleInfo getObstacleInfo() const;
+        ObstacleInfo getObstacleInfo() const;
 
-private:
-    static void taskEntry(void *arg);
-    void taskLoop();
-    ObstacleInfo evaluateFrame(const Points2D &frame) const;
+    private:
+        static void taskEntry(void *arg);
+        void taskLoop();
+        ObstacleInfo evaluateFrame(const Points2D &frame) const;
 
-    LiDARConfig cfg_;
-    UART_HAL uart_;
-    Motor_HAL motor_;
-    FramePraser parser_;
+        LiDARConfig cfg_;
+        UART_HAL uart_;
+        Motor_HAL motor_;
+        FramePraser parser_;
 
-    mutable std::mutex info_mutex_;
-    ObstacleInfo info_{};
-    TaskHandle_t task_handle_ = nullptr;
-};
+        mutable std::mutex info_mutex_;
+        ObstacleInfo info_{};
+        TaskHandle_t task_handle_ = nullptr;
+    };
 
 } // namespace lidar

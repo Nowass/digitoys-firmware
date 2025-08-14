@@ -31,6 +31,10 @@ namespace adas
 
     esp_err_t RmtInput::start(DutyCallback cb)
     {
+        if (running_)
+        {
+            return ESP_OK;
+        }
         callback_ = std::move(cb);
         queue_ = xQueueCreate(3, sizeof(rmt_rx_done_event_data_t));
         rmt_rx_event_callbacks_t cbs = {.on_recv_done = onRecvDone};
@@ -56,6 +60,7 @@ namespace adas
             return ESP_FAIL;
         }
 
+        running_ = true;
         return ESP_OK;
 
         // return xTaskCreate(
@@ -66,6 +71,10 @@ namespace adas
 
     esp_err_t RmtInput::stop()
     {
+        if (!running_)
+        {
+            return ESP_OK;
+        }
         if (task_handle_)
         {
             vTaskDelete(task_handle_);
@@ -80,6 +89,7 @@ namespace adas
             vQueueDelete(queue_);
             queue_ = nullptr;
         }
+        running_ = false;
         return ESP_OK;
     }
 
@@ -149,24 +159,42 @@ namespace adas
     {
     }
 
-    PwmPassthroughChannel::~PwmPassthroughChannel()
-    {
-        stop();
-    }
+PwmPassthroughChannel::~PwmPassthroughChannel()
+{
+    stop();
+}
 
-    esp_err_t PwmPassthroughChannel::start()
+esp_err_t PwmPassthroughChannel::start()
+{
+    if (running_)
     {
-        return input_->start([this](float duty)
-                             {
-                                 last_duty_ = duty;
-                                 output_->setDuty(duty);
-                             });
+        return ESP_OK;
     }
+    esp_err_t err = input_->start([this](float duty)
+                                  {
+                                      last_duty_ = duty;
+                                      output_->setDuty(duty);
+                                  });
+    if (err == ESP_OK)
+    {
+        running_ = true;
+    }
+    return err;
+}
 
-    esp_err_t PwmPassthroughChannel::stop()
+esp_err_t PwmPassthroughChannel::stop()
+{
+    if (!running_)
     {
-        return input_->stop();
+        return ESP_OK;
     }
+    esp_err_t err = input_->stop();
+    if (err == ESP_OK)
+    {
+        running_ = false;
+    }
+    return err;
+}
 
     esp_err_t PwmPassthroughChannel::setDuty(float duty)
     {

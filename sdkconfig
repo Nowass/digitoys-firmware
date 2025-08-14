@@ -2271,8 +2271,8 @@ CONFIG_WIFI_PROV_STA_ALL_CHANNEL_SCAN=y
 #
 # Monitor Configuration
 #
-CONFIG_MONITOR_WIFI_SSID="Kulisci_Guest_2.4"
-CONFIG_MONITOR_WIFI_PASS="importantkiss"
+CONFIG_MONITOR_WIFI_SSID="AndroidHotspot6643"
+CONFIG_MONITOR_WIFI_PASS="afe0526674d2"
 CONFIG_MONITOR_WIFI_TX_POWER_DBM=10
 # end of Monitor Configuration
 # end of Component config

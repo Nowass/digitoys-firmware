@@ -32,7 +32,7 @@ static void ControlTask(void *pv)
     float last_distance = std::numeric_limits<float>::infinity();
     float slowdown_duty = 0.0f;
 
-    constexpr float BRAKE = 0.06f;      // full brake duty
+    constexpr float BRAKE = 0.058f;     // full brake duty
     constexpr float ZERO_SPEED = 0.09f; // neutral duty
     constexpr float DUTY_STEP = 0.005f;
 
@@ -102,8 +102,8 @@ extern "C" void app_main()
         .dmaBufferLen = 2048,
         .angleMinDeg = 347.5f,
         .angleMaxDeg = 12.5f,
-        .motorPin = GPIO_NUM_4,
-        .motorChannel = LEDC_CHANNEL_0,
+        .motorPin = GPIO_NUM_3,
+        .motorChannel = LEDC_CHANNEL_1,
         .motorFreqHz = 50000,
         .motorDutyPct = 50};
     static lidar::LiDAR lidar{cfg};

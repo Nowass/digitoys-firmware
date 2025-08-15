@@ -105,15 +105,25 @@ namespace adas
     void RmtInput::taskLoop()
     {
         rmt_rx_done_event_data_t evt;
-        uint32_t max_ticks = (1 << LEDC_TIMER_15_BIT) - 1;
         while (xQueueReceive(queue_, &evt, portMAX_DELAY))
         {
             auto &s = evt.received_symbols[0];
             float duty = s.duration0 / 16129.0f;
+
+            // Store latest duty for direct reading
+            latest_duty_ = duty;
+
             callback_(duty);
             // re-arm
             rmt_receive(rmt_ch_, buffer_.data(), buffer_.size() * sizeof(rmt_symbol_word_t), &recv_cfg_);
         }
+    }
+
+    float RmtInput::readCurrentDuty(uint32_t timeout_ms)
+    {
+        // Simple implementation: return the latest captured duty
+        // In a real implementation, you might want to check if the data is fresh
+        return latest_duty_;
     }
 
     // ------------ LedcOutput ------------
@@ -159,42 +169,41 @@ namespace adas
     {
     }
 
-PwmPassthroughChannel::~PwmPassthroughChannel()
-{
-    stop();
-}
-
-esp_err_t PwmPassthroughChannel::start()
-{
-    if (running_)
+    PwmPassthroughChannel::~PwmPassthroughChannel()
     {
-        return ESP_OK;
+        stop();
     }
-    esp_err_t err = input_->start([this](float duty)
-                                  {
+
+    esp_err_t PwmPassthroughChannel::start()
+    {
+        if (running_)
+        {
+            return ESP_OK;
+        }
+        esp_err_t err = input_->start([this](float duty)
+                                      {
                                       last_duty_ = duty;
-                                      output_->setDuty(duty);
-                                  });
-    if (err == ESP_OK)
-    {
-        running_ = true;
+                                      output_->setDuty(duty); });
+        if (err == ESP_OK)
+        {
+            running_ = true;
+        }
+        return err;
     }
-    return err;
-}
 
-esp_err_t PwmPassthroughChannel::stop()
-{
-    if (!running_)
+    esp_err_t PwmPassthroughChannel::stop()
     {
-        return ESP_OK;
+        if (!running_)
+        {
+            return ESP_OK;
+        }
+        esp_err_t err = input_->stop();
+        if (err == ESP_OK)
+        {
+            running_ = false;
+        }
+        return err;
     }
-    esp_err_t err = input_->stop();
-    if (err == ESP_OK)
-    {
-        running_ = false;
-    }
-    return err;
-}
 
     esp_err_t PwmPassthroughChannel::setDuty(float duty)
     {
@@ -203,9 +212,26 @@ esp_err_t PwmPassthroughChannel::stop()
 
     bool PwmPassthroughChannel::throttlePressed(float center, float range) const
     {
+        // Use direct reading to get fresh RC input (bypasses passthrough state)
+        float current_duty = input_->readCurrentDuty(10); // Quick 10ms timeout
+        if (current_duty < 0)
+        {
+            // Fallback to cached value if direct read fails
+            current_duty = last_duty_;
+        }
+
         float lower = center - range * 0.5f;
         float upper = center + range * 0.5f;
-        return last_duty_ < lower || last_duty_ > upper;
+        return current_duty < lower || current_duty > upper;
+    }
+
+    float PwmPassthroughChannel::readCurrentDuty(uint32_t timeout_ms)
+    {
+        if (!input_)
+        {
+            return -1.0f;
+        }
+        return input_->readCurrentDuty(timeout_ms);
     }
 
     // ------------ PwmDriver ------------

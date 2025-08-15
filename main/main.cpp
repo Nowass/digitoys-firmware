@@ -32,14 +32,28 @@ static void ControlTask(void *pv)
     float last_distance = std::numeric_limits<float>::infinity();
     float slowdown_duty = 0.0f;
 
-    constexpr float BRAKE = 0.058f;     // full brake duty
-    constexpr float ZERO_SPEED = 0.09f; // neutral duty
+    constexpr float BRAKE = 0.058f;       // full brake duty
+    constexpr float ZERO_SPEED = 0.0856f; // neutral duty (measured from RC)
     constexpr float DUTY_STEP = 0.005f;
 
     while (true)
     {
         auto info = lidar.getObstacleInfo();
         ctx->mon->updateTelemetry(info.obstacle, info.distance, driver.lastDuty(0), info.warning);
+
+        // Test direct reading vs cached reading (every 2 seconds)
+        static int log_counter = 0;
+        if (++log_counter >= 40)
+        { // 40 * 50ms = 2 seconds
+            log_counter = 0;
+            float cached_duty = driver.lastDuty(0);
+            float direct_duty = driver.readCurrentDutyInput(0, 50);
+            bool throttle_pressed = driver.isThrottlePressed(0);
+            ESP_LOGI(TAG, "DUTY_TEST: cached=%.4f, direct=%.4f, throttle_pressed=%s, obstacle=%s",
+                     cached_duty, direct_duty, throttle_pressed ? "YES" : "NO",
+                     obstacle_state ? "YES" : "NO");
+        }
+
         if (driver.isThrottlePressed(0))
         {
             if (info.obstacle)

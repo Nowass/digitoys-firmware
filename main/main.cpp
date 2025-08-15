@@ -220,8 +220,8 @@ static void ControlTask(void *pv)
                         bool at_neutral = (current_rc >= ZERO_SPEED - DIRECTION_TOLERANCE &&
                                            current_rc <= ZERO_SPEED + DIRECTION_TOLERANCE);
 
-                        ESP_LOGI(TAG, "RC check during warning: duty=%.4f, reverse=%s, neutral=%s",
-                                 current_rc, wants_reverse ? "YES" : "NO", at_neutral ? "YES" : "NO");
+                        ESP_LOGI(TAG, "RC check during warning: rc_input=%.4f, slowdown_duty=%.4f, reverse=%s, neutral=%s",
+                                 current_rc, slowdown_duty, wants_reverse ? "YES" : "NO", at_neutral ? "YES" : "NO");
 
                         if (wants_reverse || at_neutral)
                         {
@@ -230,9 +230,16 @@ static void ControlTask(void *pv)
                             ESP_LOGI(TAG, "RC input allows escape from warning - clearing warning state");
                             // Passthrough already resumed above
                         }
+                        else if (current_rc <= slowdown_duty + 0.01f) // RC input dropped to slowdown level (+tolerance)
+                        {
+                            // User reduced throttle to match slowdown - resume normal control
+                            warning_state = false;
+                            ESP_LOGI(TAG, "RC input matches slowdown level - resuming normal control");
+                            // Passthrough already resumed above
+                        }
                         else
                         {
-                            // Still forward - continue warning behavior
+                            // Still forward and above slowdown level - continue warning behavior
                             driver.pausePassthrough(0);
 
                             // Apply gradual slowdown during warning
@@ -242,12 +249,13 @@ static void ControlTask(void *pv)
                                 slowdown_duty -= DUTY_STEP;
                                 if (slowdown_duty < ZERO_SPEED)
                                     slowdown_duty = ZERO_SPEED;
-                                ESP_LOGI(TAG, "Warning slowdown: setting duty to %.4f", slowdown_duty);
+                                ESP_LOGI(TAG, "Warning slowdown: setting duty to %.4f (rc_input=%.4f)", slowdown_duty, current_rc);
                                 driver.setDuty(0, slowdown_duty);
                             }
                             else
                             {
                                 // Keep current slowdown speed if distance is improving
+                                ESP_LOGI(TAG, "Warning maintaining: duty=%.4f (rc_input=%.4f)", slowdown_duty, current_rc);
                                 driver.setDuty(0, slowdown_duty);
                             }
                         }
@@ -271,6 +279,15 @@ static void ControlTask(void *pv)
                             // Keep current slowdown speed
                             driver.setDuty(0, slowdown_duty);
                         }
+                        
+                        // Check if we've slowed down enough based on current slowdown duty
+                        float slowdown_warning_distance = calculateWarningDistance(slowdown_duty);
+                        if (info.distance > slowdown_warning_distance)
+                        {
+                            ESP_LOGI(TAG, "Slowed down enough: actual=%.2fm > warning=%.2fm for duty=%.4f - maintaining warning",
+                                    info.distance, slowdown_warning_distance, slowdown_duty);
+                        }
+                        
                         last_distance = info.distance;
                     }
                 }

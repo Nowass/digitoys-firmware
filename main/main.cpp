@@ -27,10 +27,13 @@ static void ControlTask(void *pv)
     lidar::LiDAR &lidar = *ctx->lidar;
     adas::PwmDriver &driver = *ctx->pwm_driver;
 
-    bool obstacle_state = false;
-    bool warning_state = false;
-    float last_distance = std::numeric_limits<float>::infinity();
-    float slowdown_duty = 0.0f;
+    // State variables for obstacle detection
+    static bool obstacle_state = false;
+    static bool warning_state = false;
+    static float slowdown_duty = 0.0f;
+    static float last_distance = 0.0f;
+    static uint32_t last_rc_check_time = 0;
+    constexpr uint32_t RC_CHECK_INTERVAL_MS = 100; // Check RC input every 100ms during brake
 
     constexpr float BRAKE = 0.058f;       // full brake duty
     constexpr float ZERO_SPEED = 0.0856f; // neutral duty (measured from RC)
@@ -88,6 +91,43 @@ static void ControlTask(void *pv)
                     ESP_LOGW(TAG, "Obstacle! Applying brake duty");
                     driver.pausePassthrough(0);
                     driver.setDuty(0, BRAKE);
+                    last_rc_check_time = esp_timer_get_time() / 1000; // Initialize timer
+                }
+                else
+                {
+                    // Brake is active - periodically check RC input for reverse/neutral
+                    uint32_t current_time = esp_timer_get_time() / 1000;
+                    if ((current_time - last_rc_check_time) >= RC_CHECK_INTERVAL_MS)
+                    {
+                        // Temporarily resume passthrough to get fresh RC reading
+                        ESP_LOGI(TAG, "Checking RC input during brake...");
+                        driver.resumePassthrough(0);
+                        vTaskDelay(pdMS_TO_TICKS(20)); // Brief delay to get fresh reading
+                        
+                        float current_rc = driver.lastDuty(0);
+                        bool wants_reverse = (current_rc < ZERO_SPEED - DIRECTION_TOLERANCE);
+                        bool at_neutral = (current_rc >= ZERO_SPEED - DIRECTION_TOLERANCE && 
+                                         current_rc <= ZERO_SPEED + DIRECTION_TOLERANCE);
+                        
+                        ESP_LOGI(TAG, "RC check: duty=%.4f, reverse=%s, neutral=%s", 
+                                current_rc, wants_reverse ? "YES" : "NO", at_neutral ? "YES" : "NO");
+                        
+                        if (wants_reverse || at_neutral)
+                        {
+                            // Allow reverse/neutral motion - clear brake
+                            obstacle_state = false;
+                            ESP_LOGI(TAG, "RC input allows escape - clearing brake");
+                            // Passthrough already resumed above
+                        }
+                        else
+                        {
+                            // Still forward - reapply brake
+                            driver.pausePassthrough(0);
+                            driver.setDuty(0, BRAKE);
+                        }
+                        
+                        last_rc_check_time = current_time;
+                    }
                 }
             }
             else if (driving_forward && info.warning)

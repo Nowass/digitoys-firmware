@@ -35,6 +35,7 @@ static void ControlTask(void *pv)
     constexpr float BRAKE = 0.058f;       // full brake duty
     constexpr float ZERO_SPEED = 0.0856f; // neutral duty (measured from RC)
     constexpr float DUTY_STEP = 0.005f;
+    constexpr float DIRECTION_TOLERANCE = 0.005f; // tolerance for forward/reverse detection
 
     while (true)
     {
@@ -43,20 +44,42 @@ static void ControlTask(void *pv)
 
         // Test direct reading vs cached reading (every 2 seconds)
         static int log_counter = 0;
+        bool throttle_pressed = driver.isThrottlePressed(0);  // Check once per loop
         if (++log_counter >= 40)
         { // 40 * 50ms = 2 seconds
             log_counter = 0;
             float cached_duty = driver.lastDuty(0);
             float direct_duty = driver.readCurrentDutyInput(0, 50);
-            bool throttle_pressed = driver.isThrottlePressed(0);
-            ESP_LOGI(TAG, "DUTY_TEST: cached=%.4f, direct=%.4f, throttle_pressed=%s, obstacle=%s",
+            
+            ESP_LOGI(TAG, "DUTY_TEST: cached=%.4f, direct=%.4f, throttle_pressed=%s, obstacle=%s, forward=%s, reverse=%s",
                      cached_duty, direct_duty, throttle_pressed ? "YES" : "NO",
-                     obstacle_state ? "YES" : "NO");
+                     obstacle_state ? "YES" : "NO", 
+                     (direct_duty > ZERO_SPEED + DIRECTION_TOLERANCE) ? "YES" : "NO",
+                     (direct_duty < ZERO_SPEED - DIRECTION_TOLERANCE) ? "YES" : "NO");
         }
 
-        if (driver.isThrottlePressed(0))
+        // Get current RC input for direction detection
+        float current_rc_input = driver.readCurrentDutyInput(0, 50);
+        if (current_rc_input < 0) {
+            current_rc_input = driver.lastDuty(0); // Fallback
+        }
+        bool driving_forward = (current_rc_input > ZERO_SPEED + DIRECTION_TOLERANCE);
+        bool wants_reverse = (current_rc_input < ZERO_SPEED - DIRECTION_TOLERANCE);
+
+        if (throttle_pressed)
         {
-            if (info.obstacle)
+            if (wants_reverse)
+            {
+                // Allow reverse motion - clear any brake states immediately
+                if (obstacle_state || warning_state)
+                {
+                    obstacle_state = false;
+                    warning_state = false;
+                    ESP_LOGI(TAG, "Reverse motion - clearing brake states");
+                    driver.resumePassthrough(0);
+                }
+            }
+            else if (driving_forward && info.obstacle)
             {
                 if (!obstacle_state)
                 {
@@ -67,7 +90,7 @@ static void ControlTask(void *pv)
                     driver.setDuty(0, BRAKE);
                 }
             }
-            else if (info.warning)
+            else if (driving_forward && info.warning)
             {
                 obstacle_state = false;
                 if (!warning_state)
@@ -90,8 +113,9 @@ static void ControlTask(void *pv)
                     last_distance = info.distance;
                 }
             }
-            else
+            else if (driving_forward)
             {
+                // Forward motion with no obstacles - clear any brake states
                 if (obstacle_state || warning_state)
                 {
                     obstacle_state = false;
@@ -100,6 +124,7 @@ static void ControlTask(void *pv)
                     driver.resumePassthrough(0);
                 }
             }
+            // Neutral position - maintain current state
         }
 
         vTaskDelay(pdMS_TO_TICKS(50));

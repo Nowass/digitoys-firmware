@@ -41,10 +41,10 @@ static void ControlTask(void *pv)
     constexpr float DIRECTION_TOLERANCE = 0.005f; // tolerance for forward/reverse detection
 
     // Dynamic braking parameters
-    constexpr float MIN_BRAKE_DISTANCE = 0.3f;            // Minimum brake distance (safety)
-    constexpr float MAX_BRAKE_DISTANCE = 2.0f;            // Maximum brake distance
-    constexpr float MIN_WARNING_DISTANCE = 0.6f;          // Minimum warning distance
-    constexpr float MAX_WARNING_DISTANCE = 3.0f;          // Maximum warning distance
+    constexpr float MIN_BRAKE_DISTANCE = 0.5f;            // Minimum brake distance (safety)
+    constexpr float MAX_BRAKE_DISTANCE = 3.5f;            // Maximum brake distance (increased for earlier braking)
+    constexpr float MIN_WARNING_DISTANCE = 1.0f;          // Minimum warning distance
+    constexpr float MAX_WARNING_DISTANCE = 5.0f;          // Maximum warning distance (increased for earlier warning)
     constexpr float HIGH_SPEED_DUTY = ZERO_SPEED + 0.03f; // ~3% above neutral (for scaling)
 
     // Function to calculate dynamic brake distance based on current speed
@@ -59,8 +59,11 @@ static void ControlTask(void *pv)
         float speed_factor = (current_duty - ZERO_SPEED) / (HIGH_SPEED_DUTY - ZERO_SPEED);
         speed_factor = std::max(0.0f, std::min(1.0f, speed_factor)); // Clamp to [0,1]
 
+        // Quadratic scaling for more aggressive high-speed braking
+        float scaled_factor = speed_factor * speed_factor; // Square it for exponential increase
+
         // Linear interpolation between min and max brake distance
-        return MIN_BRAKE_DISTANCE + speed_factor * (MAX_BRAKE_DISTANCE - MIN_BRAKE_DISTANCE);
+        return MIN_BRAKE_DISTANCE + scaled_factor * (MAX_BRAKE_DISTANCE - MIN_BRAKE_DISTANCE);
     };
 
     // Function to calculate dynamic warning distance
@@ -74,7 +77,10 @@ static void ControlTask(void *pv)
         float speed_factor = (current_duty - ZERO_SPEED) / (HIGH_SPEED_DUTY - ZERO_SPEED);
         speed_factor = std::max(0.0f, std::min(1.0f, speed_factor));
 
-        return MIN_WARNING_DISTANCE + speed_factor * (MAX_WARNING_DISTANCE - MIN_WARNING_DISTANCE);
+        // Quadratic scaling for more aggressive high-speed warning
+        float scaled_factor = speed_factor * speed_factor;
+
+        return MIN_WARNING_DISTANCE + scaled_factor * (MAX_WARNING_DISTANCE - MIN_WARNING_DISTANCE);
     };
 
     while (true)
@@ -279,15 +285,15 @@ static void ControlTask(void *pv)
                             // Keep current slowdown speed
                             driver.setDuty(0, slowdown_duty);
                         }
-                        
+
                         // Check if we've slowed down enough based on current slowdown duty
                         float slowdown_warning_distance = calculateWarningDistance(slowdown_duty);
                         if (info.distance > slowdown_warning_distance)
                         {
                             ESP_LOGI(TAG, "Slowed down enough: actual=%.2fm > warning=%.2fm for duty=%.4f - maintaining warning",
-                                    info.distance, slowdown_warning_distance, slowdown_duty);
+                                     info.distance, slowdown_warning_distance, slowdown_duty);
                         }
-                        
+
                         last_distance = info.distance;
                     }
                 }

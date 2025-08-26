@@ -19,11 +19,44 @@ namespace adas
 
     struct PwmChannelConfig
     {
-        gpio_num_t rx_gpio;
-        gpio_num_t tx_gpio;
-        ledc_channel_t ledc_channel;
-        ledc_timer_t ledc_timer;
-        uint32_t pwm_freq_hz = 62;
+        gpio_num_t rx_gpio;          ///< RMT input GPIO pin (from RC receiver)
+        gpio_num_t tx_gpio;          ///< LEDC output GPIO pin (to ESC)
+        ledc_channel_t ledc_channel; ///< LEDC channel for PWM output
+        ledc_timer_t ledc_timer;     ///< LEDC timer for PWM generation
+        uint32_t pwm_freq_hz = 62;   ///< PWM frequency in Hz (typical RC frequency)
+
+        /**
+         * @brief Validate this configuration
+         * @return ESP_OK if valid, error code otherwise
+         */
+        esp_err_t validate() const;
+
+        /**
+         * @brief Get default configuration with safe values
+         * @return Default PWM channel configuration
+         */
+        static PwmChannelConfig getDefault();
+
+        /**
+         * @brief Create configuration using centralized constants
+         * @return Configuration populated with values from digitoys::constants
+         */
+        static PwmChannelConfig createFromConstants();
+
+        /**
+         * @brief Create throttle configuration with validation
+         * @return Validated throttle PWM configuration
+         */
+        static PwmChannelConfig createThrottleConfig();
+
+        /**
+         * @brief Create steering configuration with validation (for future use)
+         * @return Validated steering PWM configuration
+         */
+        static PwmChannelConfig createSteeringConfig();
+
+    private:
+        static const char *TAG;
     };
 
     class IPwmChannel

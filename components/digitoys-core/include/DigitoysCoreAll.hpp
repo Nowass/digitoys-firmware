@@ -15,6 +15,8 @@
 #include "ComponentBase.hpp"
 #include "ComponentError.hpp"
 #include "Constants.hpp"
+#include "ConfigValidator.hpp"
+#include "ComponentConfigFactory.hpp"
 
 namespace digitoys::core
 {

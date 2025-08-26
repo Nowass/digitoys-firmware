@@ -13,26 +13,17 @@ static const char *TAG = "APP_MAIN";
 using namespace lidar;
 extern "C" void app_main()
 {
-    // --- LiDAR hardware setup ---
-    LiDARConfig cfg = {
-        .uartPort = UART_NUM_1,
-        .txPin = GPIO_NUM_10,
-        .rxPin = GPIO_NUM_11,
-        .dmaBufferLen = 2048,
-        .angleMinDeg = 257.5f,
-        .angleMaxDeg = 282.5f,
-        .motorPin = GPIO_NUM_3,
-        .motorChannel = LEDC_CHANNEL_0,
-        .motorFreqHz = 30000,
-        .motorDutyPct = 50};
-    static lidar::LiDAR lidar{cfg};
-    ESP_ERROR_CHECK(lidar.initialize());
-    ESP_LOGI(TAG, "LiDAR initialized");
+    ESP_LOGI(TAG, "Starting DigiToys firmware with unified configuration system");
 
-    // --- PWM passthrough driver (throttle only) ---
-    adas::PwmChannelConfig thr_cfg = {GPIO_NUM_18, GPIO_NUM_19,
-                                      LEDC_CHANNEL_1, LEDC_TIMER_1, 62};
-    std::vector<adas::PwmChannelConfig> configs = {thr_cfg};
+    // --- LiDAR hardware setup using configuration factory ---
+    auto lidar_config = lidar::LiDARConfig::createProductionConfig();
+    static lidar::LiDAR lidar{lidar_config};
+    ESP_ERROR_CHECK(lidar.initialize());
+    ESP_LOGI(TAG, "LiDAR initialized with validated configuration");
+
+    // --- PWM passthrough driver using configuration factory ---
+    auto throttle_config = adas::PwmChannelConfig::createThrottleConfig();
+    std::vector<adas::PwmChannelConfig> configs = {throttle_config};
     static adas::PwmDriver pwm_driver{configs};
     ESP_ERROR_CHECK(pwm_driver.initialize());
     ESP_LOGI(TAG, "PWM passthrough running");

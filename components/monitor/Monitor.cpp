@@ -13,18 +13,101 @@ namespace monitor
     static const char *TAG = "Monitor";
     Monitor *Monitor::instance_ = nullptr;
 
+    esp_err_t Monitor::initialize()
+    {
+        ESP_LOGI(TAG, "Initializing Monitor component");
+
+        mutex_ = xSemaphoreCreateMutex();
+        if (mutex_ == nullptr)
+        {
+            ESP_LOGE(TAG, "Failed to create telemetry mutex");
+            return ESP_ERR_NO_MEM;
+        }
+
+        setState(digitoys::core::ComponentState::INITIALIZED);
+        return ESP_OK;
+    }
+
     esp_err_t Monitor::start()
     {
+        if (getState() != digitoys::core::ComponentState::INITIALIZED && getState() != digitoys::core::ComponentState::STOPPED)
+        {
+            ESP_LOGW(TAG, "Monitor not in correct state to start");
+            return ESP_ERR_INVALID_STATE;
+        }
+
+        ESP_LOGI(TAG, "Starting Monitor component");
         instance_ = this;
-        mutex_ = xSemaphoreCreateMutex();
-        ESP_ERROR_CHECK(init_wifi());
-        ESP_ERROR_CHECK(start_http_server());
+
+        esp_err_t ret = init_wifi();
+        if (ret != ESP_OK)
+        {
+            ESP_LOGE(TAG, "Failed to initialize WiFi: %s", esp_err_to_name(ret));
+            setState(digitoys::core::ComponentState::ERROR);
+            return ret;
+        }
+
+        ret = start_http_server();
+        if (ret != ESP_OK)
+        {
+            ESP_LOGE(TAG, "Failed to start HTTP server: %s", esp_err_to_name(ret));
+            setState(digitoys::core::ComponentState::ERROR);
+            return ret;
+        }
+
+        setState(digitoys::core::ComponentState::RUNNING);
+        ESP_LOGI(TAG, "Monitor component started successfully");
+        return ESP_OK;
+    }
+
+    esp_err_t Monitor::stop()
+    {
+        if (getState() != digitoys::core::ComponentState::RUNNING)
+        {
+            ESP_LOGW(TAG, "Monitor not running, cannot stop");
+            return ESP_ERR_INVALID_STATE;
+        }
+
+        ESP_LOGI(TAG, "Stopping Monitor component");
+
+        esp_err_t ret = stop_http_server();
+        if (ret != ESP_OK)
+        {
+            ESP_LOGE(TAG, "Failed to stop HTTP server: %s", esp_err_to_name(ret));
+        }
+
+        if (mutex_)
+        {
+            vSemaphoreDelete(mutex_);
+            mutex_ = nullptr;
+        }
+
+        instance_ = nullptr;
+        setState(digitoys::core::ComponentState::STOPPED);
+        ESP_LOGI(TAG, "Monitor component stopped");
+        return ESP_OK;
+    }
+
+    esp_err_t Monitor::shutdown()
+    {
+        if (getState() == digitoys::core::ComponentState::RUNNING)
+        {
+            esp_err_t ret = stop();
+            if (ret != ESP_OK)
+            {
+                ESP_LOGW(TAG, "Failed to stop during shutdown: %s", esp_err_to_name(ret));
+            }
+        }
+
+        setState(digitoys::core::ComponentState::UNINITIALIZED);
+        ESP_LOGI(TAG, "Monitor component shutdown complete");
         return ESP_OK;
     }
 
     void Monitor::updateTelemetry(bool obstacle, float distance, float speed_est, bool warning)
     {
-        if (mutex_ && xSemaphoreTake(mutex_, portMAX_DELAY))
+        if (mutex_ && xSemaphoreTake(mutex_,
+                                     pdMS_TO_TICKS(digitoys::constants::monitor::HTTP_TELEMETRY_TIMEOUT_MS)))
         {
             data_.obstacle = obstacle;
             data_.warning = warning;
@@ -66,16 +149,17 @@ namespace monitor
     esp_err_t Monitor::telemetry_get_handler(httpd_req_t *req)
     {
         Telemetry data{};
-        if (instance_->mutex_ && xSemaphoreTake(instance_->mutex_, pdMS_TO_TICKS(100)))
+        if (instance_->mutex_ && xSemaphoreTake(instance_->mutex_,
+                                                pdMS_TO_TICKS(digitoys::constants::monitor::HTTP_TELEMETRY_TIMEOUT_MS)))
         {
             data = instance_->data_;
             xSemaphoreGive(instance_->mutex_);
         }
 
         // Clamp distance if it's infinity
-        float distance = std::isinf(data.distance) ? 999.99f : data.distance;
+        float distance = std::isinf(data.distance) ? digitoys::constants::monitor::DEFAULT_DISTANCE_CLAMP : data.distance;
 
-        char resp[128];
+        char resp[digitoys::constants::monitor::HTTP_RESPONSE_BUFFER_SIZE];
         int len = snprintf(resp, sizeof(resp),
                            "{\"obstacle\":%s,\"distance\":%.2f,\"speed\":%.2f,\"warning\":%s}",
                            data.obstacle ? "true" : "false", distance, data.speed_est, data.warning ? "true" : "false");
@@ -129,8 +213,16 @@ namespace monitor
     esp_err_t Monitor::start_http_server()
     {
         httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-        config.stack_size = 4096;
-        ESP_ERROR_CHECK(httpd_start(&server_, &config));
+        config.stack_size = digitoys::constants::monitor::HTTP_SERVER_STACK_SIZE;
+        config.server_port = digitoys::constants::monitor::HTTP_SERVER_PORT;
+
+        esp_err_t ret = httpd_start(&server_, &config);
+        if (ret != ESP_OK)
+        {
+            ESP_LOGE(TAG, "Failed to start HTTP server: %s", esp_err_to_name(ret));
+            return ret;
+        }
+
         httpd_uri_t uri = {
             .uri = "/telemetry",
             .method = HTTP_GET,
@@ -151,7 +243,23 @@ namespace monitor
             .handler = SystemMonitor::stats_get_handler,
             .user_ctx = nullptr};
         ESP_ERROR_CHECK(httpd_register_uri_handler(server_, &sys_uri));
-        ESP_LOGI(TAG, "HTTP server started");
+        ESP_LOGI(TAG, "HTTP server started on port %d", digitoys::constants::monitor::HTTP_SERVER_PORT);
+        return ESP_OK;
+    }
+
+    esp_err_t Monitor::stop_http_server()
+    {
+        if (server_)
+        {
+            esp_err_t ret = httpd_stop(server_);
+            server_ = nullptr;
+            if (ret != ESP_OK)
+            {
+                ESP_LOGE(TAG, "Failed to stop HTTP server: %s", esp_err_to_name(ret));
+                return ret;
+            }
+            ESP_LOGI(TAG, "HTTP server stopped");
+        }
         return ESP_OK;
     }
 

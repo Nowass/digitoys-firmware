@@ -11,15 +11,69 @@ namespace monitor
     static const char *TAG = "SystemMonitor";
     SystemMonitor *SystemMonitor::instance_ = nullptr;
 
+    esp_err_t SystemMonitor::initialize()
+    {
+        ESP_LOGI(TAG, "Initializing SystemMonitor component");
+
+        prev_idle_time_ = 0;
+        prev_total_time_ = 0;
+
+        setState(digitoys::core::ComponentState::INITIALIZED);
+        return ESP_OK;
+    }
+
     esp_err_t SystemMonitor::start()
     {
+        if (getState() != digitoys::core::ComponentState::INITIALIZED && getState() != digitoys::core::ComponentState::STOPPED)
+        {
+            ESP_LOGW(TAG, "SystemMonitor not in correct state to start");
+            return ESP_ERR_INVALID_STATE;
+        }
+
+        ESP_LOGI(TAG, "Starting SystemMonitor component");
         instance_ = this;
+
+        setState(digitoys::core::ComponentState::RUNNING);
+        ESP_LOGI(TAG, "SystemMonitor component started successfully");
+        return ESP_OK;
+    }
+
+    esp_err_t SystemMonitor::stop()
+    {
+        if (getState() != digitoys::core::ComponentState::RUNNING)
+        {
+            ESP_LOGW(TAG, "SystemMonitor not running, cannot stop");
+            return ESP_ERR_INVALID_STATE;
+        }
+
+        ESP_LOGI(TAG, "Stopping SystemMonitor component");
+
+        instance_ = nullptr;
+
+        setState(digitoys::core::ComponentState::STOPPED);
+        ESP_LOGI(TAG, "SystemMonitor component stopped");
+        return ESP_OK;
+    }
+
+    esp_err_t SystemMonitor::shutdown()
+    {
+        if (getState() == digitoys::core::ComponentState::RUNNING)
+        {
+            esp_err_t ret = stop();
+            if (ret != ESP_OK)
+            {
+                ESP_LOGW(TAG, "Failed to stop during shutdown: %s", esp_err_to_name(ret));
+            }
+        }
+
+        setState(digitoys::core::ComponentState::UNINITIALIZED);
+        ESP_LOGI(TAG, "SystemMonitor component shutdown complete");
         return ESP_OK;
     }
 
     static float calculate_cpu_load(uint32_t &prev_idle, uint32_t &prev_total)
     {
-        const int MAX_TASKS = 20;
+        const int MAX_TASKS = digitoys::constants::monitor::MAX_MONITORED_TASKS;
         TaskStatus_t status[MAX_TASKS];
         uint32_t total_time = 0;
         UBaseType_t count = uxTaskGetSystemState(status, MAX_TASKS, &total_time);
@@ -54,7 +108,7 @@ namespace monitor
         size_t total_heap = heap_caps_get_total_size(MALLOC_CAP_DEFAULT);
         size_t free_heap = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
 
-        const int MAX_TASKS = 20;
+        const int MAX_TASKS = digitoys::constants::monitor::MAX_MONITORED_TASKS;
         TaskStatus_t status[MAX_TASKS];
         uint32_t total_time = 0;
         UBaseType_t count = uxTaskGetSystemState(status, MAX_TASKS, &total_time);

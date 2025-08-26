@@ -32,13 +32,15 @@ extern "C" void app_main()
 
     // --- Telemetry monitor ---
     static monitor::Monitor mon;
+    ESP_ERROR_CHECK(mon.initialize());
     ESP_ERROR_CHECK(mon.start());
-    ESP_LOGI(TAG, "Monitor started");
+    ESP_LOGI(TAG, "Monitor initialized and started");
 
     // --- System monitor ---
     static monitor::SystemMonitor sys_mon;
+    ESP_ERROR_CHECK(sys_mon.initialize());
     ESP_ERROR_CHECK(sys_mon.start());
-    ESP_LOGI(TAG, "System monitor started");
+    ESP_LOGI(TAG, "System monitor initialized and started");
 
     // --- Launch ControlTask ---
     static control::ControlContext ctx = {&lidar, &pwm_driver, &mon};

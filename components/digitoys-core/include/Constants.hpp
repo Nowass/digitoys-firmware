@@ -160,7 +160,7 @@ namespace digitoys::constants
     namespace control_task
     {
         // Task configuration
-        constexpr size_t TASK_STACK_SIZE = 8192;             ///< Control task stack size
+        constexpr size_t TASK_STACK_SIZE = 8192;                    ///< Control task stack size
         constexpr UBaseType_t TASK_PRIORITY = tskIDLE_PRIORITY + 2; ///< Control task priority
 
         // Logging intervals
@@ -169,6 +169,31 @@ namespace digitoys::constants
 
         // Dynamic braking parameters (these override the basic distance constants)
         constexpr float HIGH_SPEED_DUTY = pwm::NEUTRAL_DUTY + 0.03f; ///< ~3% above neutral (for scaling)
+    }
+
+    /**
+     * @brief Monitor component constants
+     */
+    namespace monitor
+    {
+        // HTTP server configuration
+        constexpr uint16_t HTTP_SERVER_PORT = 80;       ///< HTTP server port
+        constexpr size_t HTTP_SERVER_STACK_SIZE = 4096; ///< HTTP server stack size
+        constexpr int HTTP_RESPONSE_BUFFER_SIZE = 128;  ///< HTTP response buffer size
+        constexpr int HTTP_TELEMETRY_TIMEOUT_MS = 100;  ///< Telemetry data access timeout
+
+        // WiFi configuration
+        constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 10000; ///< WiFi connection timeout
+        constexpr uint32_t WIFI_RETRY_DELAY_MS = 5000;      ///< WiFi retry delay
+
+        // System monitoring
+        constexpr int MAX_MONITORED_TASKS = 20;             ///< Maximum tasks for system stats
+        constexpr uint32_t STATS_UPDATE_INTERVAL_MS = 1000; ///< Stats update interval
+        constexpr float DEFAULT_DISTANCE_CLAMP = 999.99f;   ///< Distance clamp for display (meters)
+
+        // Task configuration
+        constexpr size_t TASK_STACK_SIZE = 4096;                    ///< Monitor task stack size
+        constexpr UBaseType_t TASK_PRIORITY = tskIDLE_PRIORITY + 1; ///< Monitor task priority
     }
 
 } // namespace digitoys::constants

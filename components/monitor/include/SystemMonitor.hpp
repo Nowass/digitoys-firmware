@@ -5,13 +5,27 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <stdint.h>
+#include <ComponentBase.hpp>
+#include <Constants.hpp>
 
 namespace monitor
 {
-    class SystemMonitor
+    class SystemMonitor : public digitoys::core::ComponentBase
     {
     public:
-        esp_err_t start();
+        SystemMonitor() : ComponentBase("SystemMonitor") {}
+        ~SystemMonitor() override = default;
+
+        // Disable copy constructor and assignment operator
+        SystemMonitor(const SystemMonitor &) = delete;
+        SystemMonitor &operator=(const SystemMonitor &) = delete;
+
+        // IComponent interface implementation
+        esp_err_t initialize() override;
+        esp_err_t start() override;
+        esp_err_t stop() override;
+        esp_err_t shutdown() override;
+
         static esp_err_t stats_get_handler(httpd_req_t *req);
 
     private:

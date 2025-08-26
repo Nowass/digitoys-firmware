@@ -46,7 +46,8 @@ namespace control
         }
 
         BaseType_t rc = xTaskCreate(
-            [](void *arg) { static_cast<ControlTask *>(arg)->run(); },
+            [](void *arg)
+            { static_cast<ControlTask *>(arg)->run(); },
             "ControlTask",
             digitoys::constants::control_task::TASK_STACK_SIZE,
             this,

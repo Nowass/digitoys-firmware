@@ -52,7 +52,7 @@ namespace digitoys::core
  * 3. Logging:
  *    ```cpp
  *    DIGITOYS_LOGI("MyComponent", "Operation completed successfully");
- *    DIGITOYS_LOGE("MyComponent", "Failed with error: %d", error_code);
+ *    DIGITOYS_LOGE("MyComponent", error_code);
  *    ```
  *
  * 4. Using constants:

@@ -11,27 +11,28 @@ namespace control
     ControlTask::ControlTask(ControlContext *ctx)
         : ComponentBase("ControlTask"), ctx_(ctx)
     {
-        // Constructor - all members are initialized with default constructors
+        // Register with centralized logging system
+        DIGITOYS_REGISTER_COMPONENT("ControlTask", "CONTROL");
     }
 
     esp_err_t ControlTask::initialize()
     {
         if (getState() != digitoys::core::ComponentState::UNINITIALIZED)
         {
-            DIGITOYS_LOGW("ControlTask", "CONTROL", "Component already initialized");
+            DIGITOYS_LOGW("ControlTask", "Component already initialized");
             return ESP_ERR_INVALID_STATE;
         }
 
         // Validate context
         if (!ctx_ || !ctx_->lidar || !ctx_->pwm_driver || !ctx_->monitor)
         {
-            DIGITOYS_LOGE("ControlTask", "CONTROL", "Invalid control context - null pointers");
+            DIGITOYS_LOGE("ControlTask", "Invalid control context - null pointers");
             setState(digitoys::core::ComponentState::ERROR);
             return ESP_ERR_INVALID_ARG;
         }
 
         setState(digitoys::core::ComponentState::INITIALIZED);
-        DIGITOYS_LOGI("ControlTask", "CONTROL", "Control task component initialized successfully");
+        DIGITOYS_LOGI("ControlTask", "Control task component initialized successfully");
         return ESP_OK;
     }
 
@@ -39,7 +40,7 @@ namespace control
     {
         if (getState() != digitoys::core::ComponentState::INITIALIZED)
         {
-            DIGITOYS_LOGW("ControlTask", "CONTROL", "Component not initialized or already running");
+            DIGITOYS_LOGW("ControlTask", "Component not initialized or already running");
             return ESP_ERR_INVALID_STATE;
         }
 
@@ -54,13 +55,13 @@ namespace control
 
         if (rc != pdPASS)
         {
-            DIGITOYS_LOGE("ControlTask", "CONTROL", "Failed to create control task");
+            DIGITOYS_LOGE("ControlTask", "Failed to create control task");
             setState(digitoys::core::ComponentState::ERROR);
             return ESP_FAIL;
         }
 
         setState(digitoys::core::ComponentState::RUNNING);
-        DIGITOYS_LOGI("ControlTask", "CONTROL", "Control task component started successfully");
+        DIGITOYS_LOGI("ControlTask", "Control task component started successfully");
         return ESP_OK;
     }
 
@@ -68,7 +69,7 @@ namespace control
     {
         if (getState() != digitoys::core::ComponentState::RUNNING)
         {
-            DIGITOYS_LOGW("ControlTask", "CONTROL", "Component not running");
+            DIGITOYS_LOGW("ControlTask", "Component not running");
             return ESP_ERR_INVALID_STATE;
         }
 
@@ -79,7 +80,7 @@ namespace control
         }
 
         setState(digitoys::core::ComponentState::STOPPED);
-        DIGITOYS_LOGI("ControlTask", "CONTROL", "Control task component stopped");
+        DIGITOYS_LOGI("ControlTask", "Control task component stopped");
         return ESP_OK;
     }
 
@@ -97,13 +98,13 @@ namespace control
         }
 
         setState(digitoys::core::ComponentState::UNINITIALIZED);
-        DIGITOYS_LOGI("ControlTask", "CONTROL", "Control task component shutdown complete");
+        DIGITOYS_LOGI("ControlTask", "Control task component shutdown complete");
         return ESP_OK;
     }
 
     void ControlTask::run()
     {
-        DIGITOYS_LOGI("ControlTask", "CONTROL", "Control task started");
+        DIGITOYS_LOGI("ControlTask", "Control task started");
 
         while (true)
         {
@@ -188,7 +189,7 @@ namespace control
         if (rc_status.driving_forward && ++state_.getThresholdLogCounter() >= digitoys::constants::control_task::THRESHOLD_LOG_INTERVAL)
         {
             state_.getThresholdLogCounter() = 0;
-            DIGITOYS_LOGI("ControlTask", "CONTROL", "Speed: %.4f, BrakeDist: %.2fm, WarnDist: %.2fm, ActualDist: %.2fm",
+            DIGITOYS_LOGI("ControlTask", "Speed: %.4f, BrakeDist: %.2fm, WarnDist: %.2fm, ActualDist: %.2fm",
                      rc_status.current_input, dynamic_brake_distance, dynamic_warning_distance, distance);
         }
     }

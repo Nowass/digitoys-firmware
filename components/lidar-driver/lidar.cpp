@@ -8,7 +8,11 @@ namespace lidar
 {
 
     LiDAR::LiDAR(const LiDARConfig &cfg)
-        : ComponentBase("LiDAR"), cfg_(cfg) {}
+        : ComponentBase("LiDAR"), cfg_(cfg) 
+    {
+        // Register with centralized logging system
+        DIGITOYS_REGISTER_COMPONENT("LiDAR", "LIDAR");
+    }
 
     LiDAR::~LiDAR()
     {
@@ -19,7 +23,7 @@ namespace lidar
     {
         if (getState() != digitoys::core::ComponentState::UNINITIALIZED)
         {
-            DIGITOYS_LOGW("LiDAR", "LIDAR", "Component already initialized");
+            DIGITOYS_LOGW("LiDAR", "Component already initialized");
             return ESP_ERR_INVALID_STATE;
         }
 
@@ -38,7 +42,7 @@ namespace lidar
         }
 
         setState(digitoys::core::ComponentState::INITIALIZED);
-        DIGITOYS_LOGI("LiDAR", "LIDAR", "LiDAR component initialized successfully");
+        DIGITOYS_LOGI("LiDAR", "LiDAR component initialized successfully");
         return ESP_OK;
     }
 
@@ -46,7 +50,7 @@ namespace lidar
     {
         if (getState() != digitoys::core::ComponentState::INITIALIZED)
         {
-            DIGITOYS_LOGW("LiDAR", "LIDAR", "Component not initialized or already running");
+            DIGITOYS_LOGW("LiDAR", "Component not initialized or already running");
             return ESP_ERR_INVALID_STATE;
         }
 
@@ -63,13 +67,13 @@ namespace lidar
                                     &task_handle_);
         if (rc != pdPASS)
         {
-            DIGITOYS_LOGE("LiDAR", "LIDAR", "Failed to create LiDAR task");
+            DIGITOYS_LOGE("LiDAR", "Failed to create LiDAR task");
             setState(digitoys::core::ComponentState::ERROR);
             return ESP_FAIL;
         }
 
         setState(digitoys::core::ComponentState::RUNNING);
-        DIGITOYS_LOGI("LiDAR", "LIDAR", "LiDAR component started successfully");
+        DIGITOYS_LOGI("LiDAR", "LiDAR component started successfully");
         return ESP_OK;
     }
 
@@ -77,7 +81,7 @@ namespace lidar
     {
         if (getState() != digitoys::core::ComponentState::RUNNING)
         {
-            DIGITOYS_LOGW("LiDAR", "LIDAR", "Component not running");
+            DIGITOYS_LOGW("LiDAR", "Component not running");
             return ESP_ERR_INVALID_STATE;
         }
 
@@ -89,7 +93,7 @@ namespace lidar
         motor_.stop();
 
         setState(digitoys::core::ComponentState::STOPPED);
-        DIGITOYS_LOGI("LiDAR", "LIDAR", "LiDAR component stopped");
+        DIGITOYS_LOGI("LiDAR", "LiDAR component stopped");
         return ESP_OK;
     }
 
@@ -110,7 +114,7 @@ namespace lidar
         uart_.deinit();
 
         setState(digitoys::core::ComponentState::UNINITIALIZED);
-        DIGITOYS_LOGI("LiDAR", "LIDAR", "LiDAR component shutdown complete");
+        DIGITOYS_LOGI("LiDAR", "LiDAR component shutdown complete");
         return ESP_OK;
     }
 

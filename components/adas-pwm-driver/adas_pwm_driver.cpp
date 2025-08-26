@@ -11,6 +11,9 @@ namespace adas
         : cfg_(cfg),
           buffer_(digitoys::constants::pwm::RMT_BUFFER_SIZE)
     {
+        // Register with centralized logging system
+        DIGITOYS_REGISTER_COMPONENT("RmtInput", "PWM");
+        
         rmt_rx_channel_config_t rx_cfg = {
             .gpio_num = cfg_.rx_gpio,
             .clk_src = RMT_CLK_SRC_DEFAULT,
@@ -58,7 +61,7 @@ namespace adas
             &task_handle_);
         if (rc != pdPASS)
         {
-            DIGITOYS_LOGE("RmtInput", "PWM", "Failed to create RMT task");
+            DIGITOYS_LOGE("RmtInput", "Failed to create RMT task");
             return ESP_FAIL;
         }
 
@@ -243,6 +246,9 @@ namespace adas
     PwmDriver::PwmDriver(std::vector<PwmChannelConfig> configs)
         : ComponentBase("PwmDriver"), configs_(std::move(configs))
     {
+        // Register with centralized logging system
+        DIGITOYS_REGISTER_COMPONENT("PwmDriver", "PWM");
+        
         for (auto &cfg : configs_)
         {
             channels_.emplace_back(new PwmPassthroughChannel(cfg));
@@ -253,13 +259,13 @@ namespace adas
     {
         if (getState() != digitoys::core::ComponentState::UNINITIALIZED)
         {
-            DIGITOYS_LOGW("PwmDriver", "PWM", "Component already initialized");
+            DIGITOYS_LOGW("PwmDriver", "Component already initialized");
             return ESP_ERR_INVALID_STATE;
         }
 
         // Initialize all channels but don't start them yet
         setState(digitoys::core::ComponentState::INITIALIZED);
-        DIGITOYS_LOGI("PwmDriver", "PWM", "PWM driver component initialized successfully");
+        DIGITOYS_LOGI("PwmDriver", "PWM driver component initialized successfully");
         return ESP_OK;
     }
 
@@ -267,7 +273,7 @@ namespace adas
     {
         if (getState() != digitoys::core::ComponentState::INITIALIZED)
         {
-            DIGITOYS_LOGW("PwmDriver", "PWM", "Component not initialized or already running");
+            DIGITOYS_LOGW("PwmDriver", "Component not initialized or already running");
             return ESP_ERR_INVALID_STATE;
         }
 
@@ -282,7 +288,7 @@ namespace adas
         }
 
         setState(digitoys::core::ComponentState::RUNNING);
-        DIGITOYS_LOGI("PwmDriver", "PWM", "PWM driver component started successfully");
+        DIGITOYS_LOGI("PwmDriver", "PWM driver component started successfully");
         return ESP_OK;
     }
 
@@ -290,7 +296,7 @@ namespace adas
     {
         if (getState() != digitoys::core::ComponentState::RUNNING)
         {
-            DIGITOYS_LOGW("PwmDriver", "PWM", "Component not running");
+            DIGITOYS_LOGW("PwmDriver", "Component not running");
             return ESP_ERR_INVALID_STATE;
         }
 
@@ -299,13 +305,13 @@ namespace adas
             esp_err_t err = ch->stop();
             if (err != ESP_OK)
             {
-                DIGITOYS_LOGW("PwmDriver", "PWM", "Failed to stop channel");
+                DIGITOYS_LOGW("PwmDriver", "Failed to stop channel");
                 // Continue stopping other channels
             }
         }
 
         setState(digitoys::core::ComponentState::STOPPED);
-        DIGITOYS_LOGI("PwmDriver", "PWM", "PWM driver component stopped");
+        DIGITOYS_LOGI("PwmDriver", "PWM driver component stopped");
         return ESP_OK;
     }
 
@@ -321,12 +327,12 @@ namespace adas
             esp_err_t err = ch->stop();
             if (err != ESP_OK)
             {
-                DIGITOYS_LOGW("PwmDriver", "PWM", "Failed to stop channel during shutdown");
+                DIGITOYS_LOGW("PwmDriver", "Failed to stop channel during shutdown");
             }
         }
 
         setState(digitoys::core::ComponentState::UNINITIALIZED);
-        DIGITOYS_LOGI("PwmDriver", "PWM", "PWM driver component shutdown complete");
+        DIGITOYS_LOGI("PwmDriver", "PWM driver component shutdown complete");
         return ESP_OK;
     }
 

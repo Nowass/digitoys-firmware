@@ -161,47 +161,47 @@ namespace digitoys::core
  * consistent logging format with function context and component metadata.
  */
 
-#define DIGITOYS_LOG_REGISTER(component_name, tag)                                        \
-    do                                                                                    \
-    {                                                                                     \
-        static bool __registered = false;                                                 \
-        if (!__registered)                                                                \
-        {                                                                                 \
-            digitoys::core::Logger::getInstance().registerComponent(component_name, tag); \
-            __registered = true;                                                          \
-        }                                                                                 \
-    } while (0)
+/**
+ * @brief Centralized logging macros with component registration
+ *
+ * These macros automatically register components on first use and provide
+ * consistent logging format with function context and component metadata.
+ */
 
-#define DIGITOYS_LOG_IMPL(component_name, tag, level, format, ...)                                                    \
+// Explicit component registration macro (call once during initialization)
+#define DIGITOYS_REGISTER_COMPONENT(component_name, tag) \
+    digitoys::core::Logger::getInstance().registerComponent(component_name, tag)
+
+// Simplified logging implementation that looks up the tag automatically
+#define DIGITOYS_LOG_IMPL(component_name, level, format, ...)                                                        \
     do                                                                                                                \
     {                                                                                                                 \
-        DIGITOYS_LOG_REGISTER(component_name, tag);                                                                   \
         if (digitoys::core::Logger::getInstance().isLoggingEnabled(component_name, level))                            \
         {                                                                                                             \
             digitoys::core::Logger::getInstance().logMessage(component_name, level, __func__, format, ##__VA_ARGS__); \
         }                                                                                                             \
     } while (0)
 
-// Component-aware logging macros
-#define DIGITOYS_LOGI(component_name, tag, format, ...) \
-    DIGITOYS_LOG_IMPL(component_name, tag, ESP_LOG_INFO, format, ##__VA_ARGS__)
+// Simplified component-aware logging macros (only need component name)
+#define DIGITOYS_LOGI(component_name, format, ...) \
+    DIGITOYS_LOG_IMPL(component_name, ESP_LOG_INFO, format, ##__VA_ARGS__)
 
-#define DIGITOYS_LOGW(component_name, tag, format, ...) \
-    DIGITOYS_LOG_IMPL(component_name, tag, ESP_LOG_WARN, format, ##__VA_ARGS__)
+#define DIGITOYS_LOGW(component_name, format, ...) \
+    DIGITOYS_LOG_IMPL(component_name, ESP_LOG_WARN, format, ##__VA_ARGS__)
 
-#define DIGITOYS_LOGE(component_name, tag, format, ...) \
-    DIGITOYS_LOG_IMPL(component_name, tag, ESP_LOG_ERROR, format, ##__VA_ARGS__)
+#define DIGITOYS_LOGE(component_name, format, ...) \
+    DIGITOYS_LOG_IMPL(component_name, ESP_LOG_ERROR, format, ##__VA_ARGS__)
 
-#define DIGITOYS_LOGD(component_name, tag, format, ...) \
-    DIGITOYS_LOG_IMPL(component_name, tag, ESP_LOG_DEBUG, format, ##__VA_ARGS__)
+#define DIGITOYS_LOGD(component_name, format, ...) \
+    DIGITOYS_LOG_IMPL(component_name, ESP_LOG_DEBUG, format, ##__VA_ARGS__)
 
-#define DIGITOYS_LOGV(component_name, tag, format, ...) \
-    DIGITOYS_LOG_IMPL(component_name, tag, ESP_LOG_VERBOSE, format, ##__VA_ARGS__)
+#define DIGITOYS_LOGV(component_name, format, ...) \
+    DIGITOYS_LOG_IMPL(component_name, ESP_LOG_VERBOSE, format, ##__VA_ARGS__)
 
 // Convenience macros for common components
-#define LOG_LIDAR(level, format, ...) DIGITOYS_LOG##level("LiDAR", "LIDAR", format, ##__VA_ARGS__)
-#define LOG_PWM(level, format, ...) DIGITOYS_LOG##level("PWM", "PWM", format, ##__VA_ARGS__)
-#define LOG_CONTROL(level, format, ...) DIGITOYS_LOG##level("Control", "CONTROL", format, ##__VA_ARGS__)
-#define LOG_MONITOR(level, format, ...) DIGITOYS_LOG##level("Monitor", "MONITOR", format, ##__VA_ARGS__)
-#define LOG_SYSTEM(level, format, ...) DIGITOYS_LOG##level("System", "SYSTEM", format, ##__VA_ARGS__)
-#define LOG_MAIN(level, format, ...) DIGITOYS_LOG##level("Main", "MAIN", format, ##__VA_ARGS__)
+#define LOG_LIDAR(level, format, ...) DIGITOYS_LOG##level("LiDAR", format, ##__VA_ARGS__)
+#define LOG_PWM(level, format, ...) DIGITOYS_LOG##level("PwmDriver", format, ##__VA_ARGS__)
+#define LOG_CONTROL(level, format, ...) DIGITOYS_LOG##level("ControlTask", format, ##__VA_ARGS__)
+#define LOG_MONITOR(level, format, ...) DIGITOYS_LOG##level("Monitor", format, ##__VA_ARGS__)
+#define LOG_SYSTEM(level, format, ...) DIGITOYS_LOG##level("SystemMonitor", format, ##__VA_ARGS__)
+#define LOG_MAIN(level, format, ...) DIGITOYS_LOG##level("Main", format, ##__VA_ARGS__)

@@ -10,7 +10,10 @@ namespace digitoys::core
     ComponentBase::ComponentBase(const char *name)
         : component_name_(name)
     {
-        DIGITOYS_LOGD("ComponentBase", "CORE", "Created component: %s", name);
+        // Register with centralized logging system
+        DIGITOYS_REGISTER_COMPONENT("ComponentBase", "CORE");
+        
+        DIGITOYS_LOGD("ComponentBase", "Created component: %s", name);
     }
 
     bool ComponentBase::isInitialized() const
@@ -37,7 +40,7 @@ namespace digitoys::core
     {
         if (!isValidTransition(state_, new_state))
         {
-            DIGITOYS_LOGE("ComponentBase", "CORE", "Invalid state transition from %s to %s",
+            DIGITOYS_LOGE("ComponentBase", "Invalid state transition from %s to %s",
                           componentStateToString(state_), componentStateToString(new_state));
             return ESP_ERR_INVALID_STATE;
         }
@@ -51,7 +54,7 @@ namespace digitoys::core
 
     void ComponentBase::logStateChange(ComponentState from, ComponentState to)
     {
-        DIGITOYS_LOGI("ComponentBase", "CORE", "State change: %s -> %s",
+        DIGITOYS_LOGI("ComponentBase", "State change: %s -> %s",
                       componentStateToString(from), componentStateToString(to));
     }
 

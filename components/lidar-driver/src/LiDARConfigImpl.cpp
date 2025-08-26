@@ -12,6 +12,13 @@ namespace lidar
 
     esp_err_t LiDARConfig::validate() const
     {
+        // Register with centralized logging system (one-time registration)
+        static bool registered = false;
+        if (!registered) {
+            DIGITOYS_REGISTER_COMPONENT("LiDARConfig", "CONFIG");
+            registered = true;
+        }
+
         // Validate UART configuration
         DIGITOYS_ERROR_CHECK(TAG, ConfigValidator::validateUartPort(uartPort, "UART port"));
         DIGITOYS_ERROR_CHECK(TAG, ConfigValidator::validateGpio(txPin, "UART TX pin"));
@@ -40,12 +47,12 @@ namespace lidar
         // Logical validation: warning threshold should be >= obstacle threshold
         if (warningThreshold < obstacleThreshold)
         {
-            DIGITOYS_LOGE("LiDARConfig", "CONFIG", "Warning threshold (%.2f m) must be >= obstacle threshold (%.2f m)",
+            DIGITOYS_LOGE("LiDARConfig", "Warning threshold (%.2f m) must be >= obstacle threshold (%.2f m)",
                           warningThreshold, obstacleThreshold);
             return ESP_ERR_INVALID_ARG;
         }
 
-        DIGITOYS_LOGI("LiDARConfig", "CONFIG", "Configuration validation passed");
+        DIGITOYS_LOGI("LiDARConfig", "Configuration validation passed");
         return ESP_OK;
     }
 
@@ -106,7 +113,7 @@ namespace lidar
         digitoys::core::ComponentConfigFactory::validateConfigCreation("Production LiDAR Config", result);
         if (result == ESP_OK)
         {
-            DIGITOYS_LOGI("LiDARConfig", "CONFIG", "Created production config: UART%d, TX:%d, RX:%d, Motor:%d",
+            DIGITOYS_LOGI("LiDARConfig", "Created production config: UART%d, TX:%d, RX:%d, Motor:%d",
                           config.uartPort, config.txPin, config.rxPin, config.motorPin);
         }
         return config;

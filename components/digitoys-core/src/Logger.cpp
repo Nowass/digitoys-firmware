@@ -46,7 +46,7 @@ namespace digitoys::core
         components_[name] = std::move(info);
 
         ESP_LOGI(TAG, "Registered component '%s' with tag '%s' at level %d",
-                 component_name, info.tag.c_str(), default_level);
+                 component_name, components_[name].tag.c_str(), default_level);
 
         return ESP_OK;
     }

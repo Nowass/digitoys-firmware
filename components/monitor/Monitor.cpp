@@ -14,12 +14,15 @@ namespace monitor
 
     esp_err_t Monitor::initialize()
     {
-        DIGITOYS_LOGI("Monitor", "MONITOR", "Initializing Monitor component");
+        // Register with centralized logging system
+        DIGITOYS_REGISTER_COMPONENT("Monitor", "MONITOR");
+        
+        DIGITOYS_LOGI("Monitor", "Initializing Monitor component");
 
         mutex_ = xSemaphoreCreateMutex();
         if (mutex_ == nullptr)
         {
-            DIGITOYS_LOGE("Monitor", "MONITOR", "Failed to create telemetry mutex");
+            DIGITOYS_LOGE("Monitor", "Failed to create telemetry mutex");
             return ESP_ERR_NO_MEM;
         }
 
@@ -31,17 +34,17 @@ namespace monitor
     {
         if (getState() != digitoys::core::ComponentState::INITIALIZED && getState() != digitoys::core::ComponentState::STOPPED)
         {
-            DIGITOYS_LOGW("Monitor", "MONITOR", "Monitor not in correct state to start");
+            DIGITOYS_LOGW("Monitor", "Monitor not in correct state to start");
             return ESP_ERR_INVALID_STATE;
         }
 
-        DIGITOYS_LOGI("Monitor", "MONITOR", "Starting Monitor component");
+        DIGITOYS_LOGI("Monitor", "Starting Monitor component");
         instance_ = this;
 
         esp_err_t ret = init_wifi();
         if (ret != ESP_OK)
         {
-            DIGITOYS_LOGE("Monitor", "MONITOR", "Failed to initialize WiFi: %s", esp_err_to_name(ret));
+            DIGITOYS_LOGE("Monitor", "Failed to initialize WiFi: %s", esp_err_to_name(ret));
             setState(digitoys::core::ComponentState::ERROR);
             return ret;
         }
@@ -49,13 +52,13 @@ namespace monitor
         ret = start_http_server();
         if (ret != ESP_OK)
         {
-            DIGITOYS_LOGE("Monitor", "MONITOR", "Failed to start HTTP server: %s", esp_err_to_name(ret));
+            DIGITOYS_LOGE("Monitor", "Failed to start HTTP server: %s", esp_err_to_name(ret));
             setState(digitoys::core::ComponentState::ERROR);
             return ret;
         }
 
         setState(digitoys::core::ComponentState::RUNNING);
-        DIGITOYS_LOGI("Monitor", "MONITOR", "Monitor component started successfully");
+        DIGITOYS_LOGI("Monitor", "Monitor component started successfully");
         return ESP_OK;
     }
 
@@ -63,16 +66,16 @@ namespace monitor
     {
         if (getState() != digitoys::core::ComponentState::RUNNING)
         {
-            DIGITOYS_LOGW("Monitor", "MONITOR", "Monitor not running, cannot stop");
+            DIGITOYS_LOGW("Monitor", "Monitor not running, cannot stop");
             return ESP_ERR_INVALID_STATE;
         }
 
-        DIGITOYS_LOGI("Monitor", "MONITOR", "Stopping Monitor component");
+        DIGITOYS_LOGI("Monitor", "Stopping Monitor component");
 
         esp_err_t ret = stop_http_server();
         if (ret != ESP_OK)
         {
-            DIGITOYS_LOGE("Monitor", "MONITOR", "Failed to stop HTTP server: %s", esp_err_to_name(ret));
+            DIGITOYS_LOGE("Monitor", "Failed to stop HTTP server: %s", esp_err_to_name(ret));
         }
 
         if (mutex_)
@@ -83,7 +86,7 @@ namespace monitor
 
         instance_ = nullptr;
         setState(digitoys::core::ComponentState::STOPPED);
-        DIGITOYS_LOGI("Monitor", "MONITOR", "Monitor component stopped");
+        DIGITOYS_LOGI("Monitor", "Monitor component stopped");
         return ESP_OK;
     }
 
@@ -94,12 +97,12 @@ namespace monitor
             esp_err_t ret = stop();
             if (ret != ESP_OK)
             {
-                DIGITOYS_LOGW("Monitor", "MONITOR", "Failed to stop during shutdown: %s", esp_err_to_name(ret));
+                DIGITOYS_LOGW("Monitor", "Failed to stop during shutdown: %s", esp_err_to_name(ret));
             }
         }
 
         setState(digitoys::core::ComponentState::UNINITIALIZED);
-        DIGITOYS_LOGI("Monitor", "MONITOR", "Monitor component shutdown complete");
+        DIGITOYS_LOGI("Monitor", "Monitor component shutdown complete");
         return ESP_OK;
     }
 
@@ -218,7 +221,7 @@ namespace monitor
         esp_err_t ret = httpd_start(&server_, &config);
         if (ret != ESP_OK)
         {
-            DIGITOYS_LOGE("Monitor", "MONITOR", "Failed to start HTTP server: %s", esp_err_to_name(ret));
+            DIGITOYS_LOGE("Monitor", "Failed to start HTTP server: %s", esp_err_to_name(ret));
             return ret;
         }
 
@@ -242,7 +245,7 @@ namespace monitor
             .handler = SystemMonitor::stats_get_handler,
             .user_ctx = nullptr};
         ESP_ERROR_CHECK(httpd_register_uri_handler(server_, &sys_uri));
-        DIGITOYS_LOGI("Monitor", "MONITOR", "HTTP server started on port %d", digitoys::constants::monitor::HTTP_SERVER_PORT);
+        DIGITOYS_LOGI("Monitor", "HTTP server started on port %d", digitoys::constants::monitor::HTTP_SERVER_PORT);
         return ESP_OK;
     }
 
@@ -254,10 +257,10 @@ namespace monitor
             server_ = nullptr;
             if (ret != ESP_OK)
             {
-                DIGITOYS_LOGE("Monitor", "MONITOR", "Failed to stop HTTP server: %s", esp_err_to_name(ret));
+                DIGITOYS_LOGE("Monitor", "Failed to stop HTTP server: %s", esp_err_to_name(ret));
                 return ret;
             }
-            DIGITOYS_LOGI("Monitor", "MONITOR", "HTTP server stopped");
+            DIGITOYS_LOGI("Monitor", "HTTP server stopped");
         }
         return ESP_OK;
     }

@@ -9,6 +9,13 @@ namespace control
 
     RCInputProcessor::RCStatus RCInputProcessor::processRCInput(adas::PwmDriver &driver) const
     {
+        // Register with centralized logging system (one-time registration)
+        static bool registered = false;
+        if (!registered) {
+            DIGITOYS_REGISTER_COMPONENT("RCProcessor", "CONTROL");
+            registered = true;
+        }
+
         RCStatus status;
 
         // Get current RC input for direction detection
@@ -39,7 +46,7 @@ namespace control
 
     RCInputProcessor::RCStatus RCInputProcessor::performRCCheck(adas::PwmDriver &driver) const
     {
-        DIGITOYS_LOGI("RCProcessor", "CONTROL", "Checking RC input during brake/warning...");
+        DIGITOYS_LOGI("RCProcessor", "Checking RC input during brake/warning...");
 
         // Temporarily resume passthrough to get fresh RC reading
         driver.resumePassthrough(0);
@@ -47,7 +54,7 @@ namespace control
 
         RCStatus status = processRCInput(driver);
 
-        DIGITOYS_LOGI("RCProcessor", "CONTROL", "RC check: duty=%.4f, reverse=%s, neutral=%s",
+        DIGITOYS_LOGI("RCProcessor", "RC check: duty=%.4f, reverse=%s, neutral=%s",
                  status.current_input,
                  status.wants_reverse ? "YES" : "NO",
                  status.at_neutral ? "YES" : "NO");
@@ -61,7 +68,7 @@ namespace control
         {
             log_counter = 0;
 
-            DIGITOYS_LOGI("RCProcessor", "CONTROL", "DUTY_TEST: cached=%.4f, direct=%.4f, old_throttle=%s, new_throttle=%s, forward=%s, reverse=%s",
+            DIGITOYS_LOGI("RCProcessor", "DUTY_TEST: cached=%.4f, direct=%.4f, old_throttle=%s, new_throttle=%s, forward=%s, reverse=%s",
                      status.cached_duty, status.direct_duty,
                      status.cached_throttle ? "YES" : "NO",
                      status.throttle_pressed ? "YES" : "NO",

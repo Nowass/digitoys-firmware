@@ -23,6 +23,22 @@ namespace digitoys::constants
         // Throttle detection parameters
         constexpr float DEFAULT_THROTTLE_CENTER = NEUTRAL_DUTY; ///< Default throttle center position
         constexpr float DEFAULT_THROTTLE_RANGE = 0.008f;        ///< Default throttle detection range
+
+        // RMT configuration constants
+        constexpr uint32_t RMT_RESOLUTION_HZ = 1000000;  ///< RMT clock resolution (1MHz)
+        constexpr size_t RMT_BUFFER_SIZE = 64;           ///< RMT receive buffer size
+        constexpr uint32_t RMT_SIGNAL_MIN_NS = 500;      ///< Minimum signal duration
+        constexpr uint32_t RMT_SIGNAL_MAX_NS = 10000000; ///< Maximum signal duration (10ms)
+        constexpr int RMT_INTERRUPT_PRIORITY = 2;        ///< RMT interrupt priority
+        constexpr size_t RMT_QUEUE_SIZE = 3;             ///< RMT event queue size
+
+        // Task configuration
+        constexpr size_t TASK_STACK_SIZE = 4096;                    ///< PWM task stack size
+        constexpr UBaseType_t TASK_PRIORITY = tskIDLE_PRIORITY + 1; ///< PWM task priority
+
+        // Default duty values for error conditions
+        constexpr float INVALID_DUTY = -1.0f; ///< Invalid duty cycle indicator
+        constexpr float DEFAULT_DUTY = 0.0f;  ///< Default duty cycle
     }
 
     /**

@@ -27,7 +27,8 @@ extern "C" void app_main()
     std::vector<adas::PwmChannelConfig> configs = {throttle_config};
     static adas::PwmDriver pwm_driver{configs};
     ESP_ERROR_CHECK(pwm_driver.initialize());
-    ESP_LOGI(TAG, "PWM passthrough running");
+    ESP_ERROR_CHECK(pwm_driver.start());
+    ESP_LOGI(TAG, "PWM passthrough initialized and started");
 
     // --- Telemetry monitor ---
     static monitor::Monitor mon;

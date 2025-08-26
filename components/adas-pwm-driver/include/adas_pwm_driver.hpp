@@ -9,6 +9,8 @@
 #include <freertos/task.h>
 #include <esp_err.h>
 #include <esp_log.h>
+#include <ComponentBase.hpp>
+#include <Constants.hpp>
 #include <array>
 #include <memory>
 #include <functional>
@@ -92,11 +94,11 @@ namespace adas
         TaskHandle_t task_handle_ = nullptr;
         std::vector<rmt_symbol_word_t> buffer_;
         DutyCallback callback_;
-        static constexpr size_t DEFAULT_BUFFER = 64;
+        static constexpr size_t DEFAULT_BUFFER = digitoys::constants::pwm::RMT_BUFFER_SIZE;
         bool running_ = false;
 
         // For direct duty reading
-        float latest_duty_ = -1.0f;
+        float latest_duty_ = digitoys::constants::pwm::INVALID_DUTY;
     };
 
     class LedcOutput : public IPwmChannel
@@ -130,7 +132,8 @@ namespace adas
         /// Check if throttle is pressed outside neutral range.
         /// @param center duty ratio considered neutral (measured from RC)
         /// @param range width of neutral band (default 0.8% for sensitivity)
-        bool throttlePressed(float center = 0.0856f, float range = 0.008f) const;
+        bool throttlePressed(float center = digitoys::constants::pwm::DEFAULT_THROTTLE_CENTER,
+                             float range = digitoys::constants::pwm::DEFAULT_THROTTLE_RANGE) const;
 
         /// Read current duty directly from RMT (gets fresh RC input)
         float readCurrentDuty(uint32_t timeout_ms = 100);
@@ -139,18 +142,23 @@ namespace adas
         PwmChannelConfig cfg_;
         std::unique_ptr<RmtInput> input_;
         std::unique_ptr<LedcOutput> output_;
-        float last_duty_ = 0.0f;
+        float last_duty_ = digitoys::constants::pwm::DEFAULT_DUTY;
         bool running_ = false;
     };
 
-    class PwmDriver
+    class PwmDriver : public digitoys::core::ComponentBase
     {
     public:
         explicit PwmDriver(std::vector<PwmChannelConfig> configs);
         ~PwmDriver() = default;
 
-        esp_err_t initialize();
-        esp_err_t shutdown();
+        // IComponent interface
+        esp_err_t initialize() override;
+        esp_err_t start() override;
+        esp_err_t stop() override;
+        esp_err_t shutdown() override;
+
+        // PWM-specific functionality
         esp_err_t setDuty(size_t idx, float duty);
 
     public:
@@ -174,14 +182,14 @@ namespace adas
         float lastDuty(size_t idx) const
         {
             if (idx >= channels_.size())
-                return 0.0f;
+                return digitoys::constants::pwm::DEFAULT_DUTY;
             return channels_[idx]->lastDuty();
         }
 
         /// Return true if throttle channel idx is pressed outside neutral band
         bool isThrottlePressed(size_t idx,
-                               float center = 0.0856f,
-                               float range = 0.008f) const
+                               float center = digitoys::constants::pwm::DEFAULT_THROTTLE_CENTER,
+                               float range = digitoys::constants::pwm::DEFAULT_THROTTLE_RANGE) const
         {
             if (idx >= channels_.size())
                 return false;
@@ -192,7 +200,7 @@ namespace adas
         float readCurrentDutyInput(size_t idx, uint32_t timeout_ms = 100)
         {
             if (idx >= channels_.size())
-                return -1.0f;
+                return digitoys::constants::pwm::INVALID_DUTY;
             return channels_[idx]->readCurrentDuty(timeout_ms);
         }
 

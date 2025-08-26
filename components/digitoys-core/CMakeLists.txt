@@ -1,0 +1,17 @@
+idf_component_register(
+    SRCS 
+        "src/component_config.cpp"
+        "src/component_logging.cpp"
+        "src/component_error.cpp"
+        "src/digitoys_core.cpp"
+    INCLUDE_DIRS 
+        "include"
+    REQUIRES 
+        "freertos" 
+        "esp_timer" 
+        "log" 
+        "driver"
+    PRIV_REQUIRES 
+        "esp_system"
+        "heap"
+)

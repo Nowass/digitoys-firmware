@@ -3,6 +3,8 @@
 #include <driver/gpio.h>
 #include <driver/uart.h>
 #include <driver/ledc.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 namespace digitoys::constants
 {
@@ -112,6 +114,17 @@ namespace digitoys::constants
         constexpr float SCAN_FREQUENCY_HZ = 10.0f;      ///< LiDAR scan frequency
         constexpr int INTENSITY_SINGLE_THRESHOLD = 180; ///< Single point intensity threshold
         constexpr int INTENSITY_LOW_THRESHOLD = 200;    ///< Low intensity threshold
+        constexpr int MINIMUM_INTENSITY = 100;          ///< Minimum point intensity for processing
+
+        // Task configuration
+        constexpr size_t TASK_STACK_SIZE = 4096;                    ///< LiDAR task stack size
+        constexpr UBaseType_t TASK_PRIORITY = tskIDLE_PRIORITY + 1; ///< LiDAR task priority
+        constexpr uint32_t TASK_DELAY_MS = 10;                      ///< Task loop delay in milliseconds
+        constexpr uint32_t UART_READ_TIMEOUT_MS = 20;               ///< UART read timeout
+
+        // Data processing
+        constexpr size_t READ_BUFFER_SIZE = 512;            ///< UART read buffer size
+        constexpr float DISTANCE_UNIT_CONVERSION = 1000.0f; ///< Convert mm to meters
     }
 
     /**

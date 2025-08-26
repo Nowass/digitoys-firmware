@@ -19,7 +19,8 @@ extern "C" void app_main()
     auto lidar_config = lidar::LiDARConfig::createProductionConfig();
     static lidar::LiDAR lidar{lidar_config};
     ESP_ERROR_CHECK(lidar.initialize());
-    ESP_LOGI(TAG, "LiDAR initialized with validated configuration");
+    ESP_ERROR_CHECK(lidar.start());
+    ESP_LOGI(TAG, "LiDAR initialized and started with validated configuration");
 
     // --- PWM passthrough driver using configuration factory ---
     auto throttle_config = adas::PwmChannelConfig::createThrottleConfig();

@@ -4,6 +4,19 @@ This document provides a high-level summary of the core software components. Eac
 
 ---
 
+## 🎛️ Control Task
+
+The heart of the DigiToys firmware, implementing the main control logic that orchestrates:
+
+- LiDAR-based obstacle detection with dynamic thresholds
+- RC input processing and vehicle state management  
+- Safety-critical speed control with multiple intervention levels
+- System state management and telemetry integration
+
+👉 [See full Control Task API and architecture details](./control-task.md)
+
+---
+
 ## 🟢 LiDAR Driver
 
 The LiDAR driver handles:
@@ -55,6 +68,15 @@ usage.
 
 All components are orchestrated by `ControlTask` from `main.cpp`, which:
 
-- Reads LiDAR data
-- Triggers PWM overrides based on proximity
-- Reports system stats to the web dashboard
+- Implements the main control loop running at 50ms intervals (20Hz)
+- Reads LiDAR data for obstacle detection and distance measurement
+- Processes RC input signals to determine vehicle state and driver intent
+- Applies sophisticated safety algorithms with speed-dependent thresholds
+- Triggers PWM overrides for emergency braking and speed control
+- Reports comprehensive system stats to the web dashboard
+- Manages state transitions and provides diagnostic logging
+
+The system uses a multi-task FreeRTOS architecture with priority-based scheduling to ensure real-time performance for safety-critical operations.
+
+👉 [See complete architecture overview](./architecture-overview.md)  
+👉 [See detailed FreeRTOS task documentation](./freertos-task-architecture.md)

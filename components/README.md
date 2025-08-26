@@ -15,9 +15,11 @@ At the core is the **`ControlTask`**, running on FreeRTOS, which continuously:
 
 The software architecture is composed of the following modules:
 
+- **`control-task`**: Main control logic orchestrator implementing ADAS-like safety algorithms, state management, and decision making.
 - **`lidar-driver`**: Handles UART-based LiDAR communication, frame parsing, filtering, and motor control.
 - **`adas-pwm-driver`**: Manages bidirectional PWM signals, allowing passthrough from RC receiver or override by safety logic.
 - **`monitor`**: Extracts heap, CPU, and task metrics and serializes them to JSON for web-based dashboards.
+- **`bmi270-driver`**: Accelerometer driver (currently unused, available for future motion sensing features).
 
 All components are linked via a shared context (`ControlContext`) and orchestrated by the `ControlTask`.
 
@@ -27,6 +29,10 @@ classDiagram
     ControlTask --> LiDAR
     ControlTask --> PwmDriver
     ControlTask --> Monitor
+    ControlTask --> ControlState
+    ControlTask --> ObstacleDetector
+    ControlTask --> RCInputProcessor
+    ControlTask --> SpeedController
     LiDAR --> UART_HAL
     LiDAR --> FramePraser
     LiDAR --> NearDistanceFilter
@@ -104,20 +110,47 @@ flowchart TD
 ## 🚦 Runtime Behavior Summary
 
 1. **ControlTask** (in `main.cpp`):
-   - Reads data from `LiDAR`.
-   - Detects proximity threats.
-   - Overrides throttle PWM using `PwmDriver`.
-   - Feeds runtime metrics to `Monitor`.
+   - Orchestrates the main control loop at 50ms intervals
+   - Reads data from `LiDAR` for obstacle detection
+   - Processes RC input via `PwmDriver` for vehicle state
+   - Implements sophisticated safety algorithms with dynamic thresholds
+   - Overrides throttle PWM using `PwmDriver` when obstacles detected
+   - Feeds runtime metrics to `Monitor` for telemetry
+   - Manages system state transitions and safety logic
 
 2. **LiDAR Subsystem**:
-   - Captures and filters obstacle data.
-   - Provides structured point cloud.
+   - Continuously captures and filters obstacle data at 10ms intervals
+   - Provides structured point cloud with distance and angle information
+   - Implements configurable filtering for noise reduction
 
 3. **PWM Subsystem**:
-   - Passes RC signal or overrides it to brake on threat.
+   - Captures RC signals in real-time using RMT hardware
+   - Passes RC signal through normally or overrides with brake signal
+   - Supports both throttle and steering channels (currently throttle only)
 
-4. **System Monitor**:
-   - Publishes internal health and metrics to dashboard.
+4. **Control Subsystem**:
+   - Implements state machine with multiple safety states
+   - Calculates speed-dependent braking and warning distances
+   - Provides progressive intervention: warning → slowdown → emergency brake
+   - Allows full reverse motion with safety states cleared
+
+5. **Monitoring Subsystem**:
+   - Publishes internal health and metrics to web dashboard
+   - Provides real-time telemetry for debugging and analysis
+   - Tracks system performance and resource utilization
+
+## 🏗️ FreeRTOS Task Architecture
+
+The firmware uses a multi-task architecture with the following task hierarchy:
+
+| Task | Priority | Stack | Period | Purpose |
+|------|----------|-------|--------|---------|
+| **ControlTask** | IDLE+2 | 8KB | 50ms | Main safety control logic |
+| **lidar_task** | IDLE+1 | 4KB | 10ms | LiDAR data processing |
+| **rmt_in_task** | IDLE+1 | 4KB | Event | PWM input capture |
+| **httpd** | IDLE+1 | 4KB | Event | Web server monitoring |
+
+👉 **[See detailed task architecture documentation](../doc/freertos-task-architecture.md)**
 
 ---
 

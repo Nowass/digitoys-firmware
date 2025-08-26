@@ -1,10 +1,8 @@
 #include "RCInputProcessor.hpp"
 #include <Constants.hpp>
-#include <esp_log.h>
+#include <Logger.hpp>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
-
-static const char *TAG = "RC_PROCESSOR";
 
 namespace control
 {
@@ -41,7 +39,7 @@ namespace control
 
     RCInputProcessor::RCStatus RCInputProcessor::performRCCheck(adas::PwmDriver &driver) const
     {
-        ESP_LOGI(TAG, "Checking RC input during brake/warning...");
+        DIGITOYS_LOGI("RCProcessor", "CONTROL", "Checking RC input during brake/warning...");
 
         // Temporarily resume passthrough to get fresh RC reading
         driver.resumePassthrough(0);
@@ -49,7 +47,7 @@ namespace control
 
         RCStatus status = processRCInput(driver);
 
-        ESP_LOGI(TAG, "RC check: duty=%.4f, reverse=%s, neutral=%s",
+        DIGITOYS_LOGI("RCProcessor", "CONTROL", "RC check: duty=%.4f, reverse=%s, neutral=%s",
                  status.current_input,
                  status.wants_reverse ? "YES" : "NO",
                  status.at_neutral ? "YES" : "NO");
@@ -63,7 +61,7 @@ namespace control
         {
             log_counter = 0;
 
-            ESP_LOGI(TAG, "DUTY_TEST: cached=%.4f, direct=%.4f, old_throttle=%s, new_throttle=%s, forward=%s, reverse=%s",
+            DIGITOYS_LOGI("RCProcessor", "CONTROL", "DUTY_TEST: cached=%.4f, direct=%.4f, old_throttle=%s, new_throttle=%s, forward=%s, reverse=%s",
                      status.cached_duty, status.direct_duty,
                      status.cached_throttle ? "YES" : "NO",
                      status.throttle_pressed ? "YES" : "NO",

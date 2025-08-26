@@ -1,5 +1,5 @@
 #include "SystemMonitor.hpp"
-#include <esp_log.h>
+#include <Logger.hpp>
 #include <esp_heap_caps.h>
 #include <freertos/task.h>
 #include <inttypes.h>
@@ -8,12 +8,11 @@
 
 namespace monitor
 {
-    static const char *TAG = "SystemMonitor";
     SystemMonitor *SystemMonitor::instance_ = nullptr;
 
     esp_err_t SystemMonitor::initialize()
     {
-        ESP_LOGI(TAG, "Initializing SystemMonitor component");
+        DIGITOYS_LOGI("SystemMonitor", "MONITOR", "Initializing SystemMonitor component");
 
         prev_idle_time_ = 0;
         prev_total_time_ = 0;
@@ -26,15 +25,15 @@ namespace monitor
     {
         if (getState() != digitoys::core::ComponentState::INITIALIZED && getState() != digitoys::core::ComponentState::STOPPED)
         {
-            ESP_LOGW(TAG, "SystemMonitor not in correct state to start");
+            DIGITOYS_LOGW("SystemMonitor", "MONITOR", "SystemMonitor not in correct state to start");
             return ESP_ERR_INVALID_STATE;
         }
 
-        ESP_LOGI(TAG, "Starting SystemMonitor component");
+        DIGITOYS_LOGI("SystemMonitor", "MONITOR", "Starting SystemMonitor component");
         instance_ = this;
 
         setState(digitoys::core::ComponentState::RUNNING);
-        ESP_LOGI(TAG, "SystemMonitor component started successfully");
+        DIGITOYS_LOGI("SystemMonitor", "MONITOR", "SystemMonitor component started successfully");
         return ESP_OK;
     }
 
@@ -42,16 +41,16 @@ namespace monitor
     {
         if (getState() != digitoys::core::ComponentState::RUNNING)
         {
-            ESP_LOGW(TAG, "SystemMonitor not running, cannot stop");
+            DIGITOYS_LOGW("SystemMonitor", "MONITOR", "SystemMonitor not running, cannot stop");
             return ESP_ERR_INVALID_STATE;
         }
 
-        ESP_LOGI(TAG, "Stopping SystemMonitor component");
+        DIGITOYS_LOGI("SystemMonitor", "MONITOR", "Stopping SystemMonitor component");
 
         instance_ = nullptr;
 
         setState(digitoys::core::ComponentState::STOPPED);
-        ESP_LOGI(TAG, "SystemMonitor component stopped");
+        DIGITOYS_LOGI("SystemMonitor", "MONITOR", "SystemMonitor component stopped");
         return ESP_OK;
     }
 
@@ -62,12 +61,12 @@ namespace monitor
             esp_err_t ret = stop();
             if (ret != ESP_OK)
             {
-                ESP_LOGW(TAG, "Failed to stop during shutdown: %s", esp_err_to_name(ret));
+                DIGITOYS_LOGW("SystemMonitor", "MONITOR", "Failed to stop during shutdown: %s", esp_err_to_name(ret));
             }
         }
 
         setState(digitoys::core::ComponentState::UNINITIALIZED);
-        ESP_LOGI(TAG, "SystemMonitor component shutdown complete");
+        DIGITOYS_LOGI("SystemMonitor", "MONITOR", "SystemMonitor component shutdown complete");
         return ESP_OK;
     }
 

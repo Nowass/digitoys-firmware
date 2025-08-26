@@ -1,11 +1,9 @@
 #include "ControlTask.hpp"
 #include <Constants.hpp>
-#include <esp_log.h>
+#include <Logger.hpp>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
-
-static const char *TAG = "CONTROL_TASK";
 
 namespace control
 {
@@ -20,20 +18,20 @@ namespace control
     {
         if (getState() != digitoys::core::ComponentState::UNINITIALIZED)
         {
-            ESP_LOGW(TAG, "Component already initialized");
+            DIGITOYS_LOGW("ControlTask", "CONTROL", "Component already initialized");
             return ESP_ERR_INVALID_STATE;
         }
 
         // Validate context
         if (!ctx_ || !ctx_->lidar || !ctx_->pwm_driver || !ctx_->monitor)
         {
-            ESP_LOGE(TAG, "Invalid control context - null pointers");
+            DIGITOYS_LOGE("ControlTask", "CONTROL", "Invalid control context - null pointers");
             setState(digitoys::core::ComponentState::ERROR);
             return ESP_ERR_INVALID_ARG;
         }
 
         setState(digitoys::core::ComponentState::INITIALIZED);
-        ESP_LOGI(TAG, "Control task component initialized successfully");
+        DIGITOYS_LOGI("ControlTask", "CONTROL", "Control task component initialized successfully");
         return ESP_OK;
     }
 
@@ -41,7 +39,7 @@ namespace control
     {
         if (getState() != digitoys::core::ComponentState::INITIALIZED)
         {
-            ESP_LOGW(TAG, "Component not initialized or already running");
+            DIGITOYS_LOGW("ControlTask", "CONTROL", "Component not initialized or already running");
             return ESP_ERR_INVALID_STATE;
         }
 
@@ -56,13 +54,13 @@ namespace control
 
         if (rc != pdPASS)
         {
-            ESP_LOGE(TAG, "Failed to create control task");
+            DIGITOYS_LOGE("ControlTask", "CONTROL", "Failed to create control task");
             setState(digitoys::core::ComponentState::ERROR);
             return ESP_FAIL;
         }
 
         setState(digitoys::core::ComponentState::RUNNING);
-        ESP_LOGI(TAG, "Control task component started successfully");
+        DIGITOYS_LOGI("ControlTask", "CONTROL", "Control task component started successfully");
         return ESP_OK;
     }
 
@@ -70,7 +68,7 @@ namespace control
     {
         if (getState() != digitoys::core::ComponentState::RUNNING)
         {
-            ESP_LOGW(TAG, "Component not running");
+            DIGITOYS_LOGW("ControlTask", "CONTROL", "Component not running");
             return ESP_ERR_INVALID_STATE;
         }
 
@@ -81,7 +79,7 @@ namespace control
         }
 
         setState(digitoys::core::ComponentState::STOPPED);
-        ESP_LOGI(TAG, "Control task component stopped");
+        DIGITOYS_LOGI("ControlTask", "CONTROL", "Control task component stopped");
         return ESP_OK;
     }
 
@@ -99,13 +97,13 @@ namespace control
         }
 
         setState(digitoys::core::ComponentState::UNINITIALIZED);
-        ESP_LOGI(TAG, "Control task component shutdown complete");
+        DIGITOYS_LOGI("ControlTask", "CONTROL", "Control task component shutdown complete");
         return ESP_OK;
     }
 
     void ControlTask::run()
     {
-        ESP_LOGI(TAG, "Control task started");
+        DIGITOYS_LOGI("ControlTask", "CONTROL", "Control task started");
 
         while (true)
         {
@@ -190,7 +188,7 @@ namespace control
         if (rc_status.driving_forward && ++state_.getThresholdLogCounter() >= digitoys::constants::control_task::THRESHOLD_LOG_INTERVAL)
         {
             state_.getThresholdLogCounter() = 0;
-            ESP_LOGI(TAG, "Speed: %.4f, BrakeDist: %.2fm, WarnDist: %.2fm, ActualDist: %.2fm",
+            DIGITOYS_LOGI("ControlTask", "CONTROL", "Speed: %.4f, BrakeDist: %.2fm, WarnDist: %.2fm, ActualDist: %.2fm",
                      rc_status.current_input, dynamic_brake_distance, dynamic_warning_distance, distance);
         }
     }

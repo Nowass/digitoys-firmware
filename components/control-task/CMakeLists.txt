@@ -5,6 +5,6 @@ idf_component_register(
          "src/RCInputProcessor.cpp"
          "src/SpeedController.cpp"
     INCLUDE_DIRS "include"
-    REQUIRES "freertos" "esp_timer" "log" "adas-pwm-driver" "lidar-driver" "monitor"
+    REQUIRES "freertos" "esp_timer" "log" "adas-pwm-driver" "lidar-driver" "monitor" "digitoys-core"
     PRIV_REQUIRES "driver"
 )

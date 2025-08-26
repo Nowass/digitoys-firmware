@@ -154,4 +154,21 @@ namespace digitoys::constants
         constexpr size_t TASK_STACK_SIZE_DEFAULT = 8192; ///< Default task stack size
     }
 
+    /**
+     * @brief Control task constants
+     */
+    namespace control_task
+    {
+        // Task configuration
+        constexpr size_t TASK_STACK_SIZE = 8192;             ///< Control task stack size
+        constexpr UBaseType_t TASK_PRIORITY = tskIDLE_PRIORITY + 2; ///< Control task priority
+
+        // Logging intervals
+        constexpr int DUTY_TEST_LOG_INTERVAL = 40; ///< 40 * 50ms = 2 seconds
+        constexpr int THRESHOLD_LOG_INTERVAL = 40; ///< 40 * 50ms = 2 seconds
+
+        // Dynamic braking parameters (these override the basic distance constants)
+        constexpr float HIGH_SPEED_DUTY = pwm::NEUTRAL_DUTY + 0.03f; ///< ~3% above neutral (for scaling)
+    }
+
 } // namespace digitoys::constants

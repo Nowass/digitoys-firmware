@@ -1,4 +1,5 @@
 #include "RCInputProcessor.hpp"
+#include <Constants.hpp>
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -35,7 +36,7 @@ namespace control
 
     bool RCInputProcessor::shouldCheckRCDuringBrake(uint32_t current_time, uint32_t last_check_time) const
     {
-        return (current_time - last_check_time) >= ControlConstants::RC_CHECK_INTERVAL_MS;
+        return (current_time - last_check_time) >= digitoys::constants::timing::RC_CHECK_INTERVAL_MS;
     }
 
     RCInputProcessor::RCStatus RCInputProcessor::performRCCheck(adas::PwmDriver &driver) const
@@ -44,7 +45,7 @@ namespace control
 
         // Temporarily resume passthrough to get fresh RC reading
         driver.resumePassthrough(0);
-        vTaskDelay(pdMS_TO_TICKS(ControlConstants::RC_READ_DELAY_MS)); // Brief delay to get fresh reading
+        vTaskDelay(pdMS_TO_TICKS(digitoys::constants::timing::RC_READ_DELAY_MS)); // Brief delay to get fresh reading
 
         RCStatus status = processRCInput(driver);
 
@@ -58,7 +59,7 @@ namespace control
 
     void RCInputProcessor::logDiagnostics(const RCStatus &status, int &log_counter) const
     {
-        if (++log_counter >= ControlConstants::DUTY_TEST_LOG_INTERVAL)
+        if (++log_counter >= digitoys::constants::control_task::DUTY_TEST_LOG_INTERVAL)
         {
             log_counter = 0;
 
@@ -73,18 +74,18 @@ namespace control
 
     bool RCInputProcessor::isDrivingForward(float duty_cycle) const
     {
-        return duty_cycle > ControlConstants::ZERO_SPEED + ControlConstants::DIRECTION_TOLERANCE;
+        return duty_cycle > digitoys::constants::pwm::NEUTRAL_DUTY + digitoys::constants::pwm::DIRECTION_TOLERANCE;
     }
 
     bool RCInputProcessor::wantsReverse(float duty_cycle) const
     {
-        return duty_cycle < ControlConstants::ZERO_SPEED - ControlConstants::DIRECTION_TOLERANCE;
+        return duty_cycle < digitoys::constants::pwm::NEUTRAL_DUTY - digitoys::constants::pwm::DIRECTION_TOLERANCE;
     }
 
     bool RCInputProcessor::isAtNeutral(float duty_cycle) const
     {
-        return duty_cycle >= ControlConstants::ZERO_SPEED - ControlConstants::DIRECTION_TOLERANCE &&
-               duty_cycle <= ControlConstants::ZERO_SPEED + ControlConstants::DIRECTION_TOLERANCE;
+        return duty_cycle >= digitoys::constants::pwm::NEUTRAL_DUTY - digitoys::constants::pwm::DIRECTION_TOLERANCE &&
+               duty_cycle <= digitoys::constants::pwm::NEUTRAL_DUTY + digitoys::constants::pwm::DIRECTION_TOLERANCE;
     }
 
     bool RCInputProcessor::isThrottlePressed(float duty_cycle) const

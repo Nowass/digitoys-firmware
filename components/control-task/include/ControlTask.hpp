@@ -7,6 +7,9 @@
 #include "adas_pwm_driver.hpp"
 #include "LiDAR.hpp"
 #include "Monitor.hpp"
+#include <ComponentBase.hpp>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 namespace control
 {
@@ -24,7 +27,7 @@ namespace control
     /**
      * @brief Main control task that orchestrates all control logic
      */
-    class ControlTask
+    class ControlTask : public digitoys::core::ComponentBase
     {
     public:
         /**
@@ -33,8 +36,14 @@ namespace control
          */
         explicit ControlTask(ControlContext *ctx);
 
+        // IComponent interface
+        esp_err_t initialize() override;
+        esp_err_t start() override;
+        esp_err_t stop() override;
+        esp_err_t shutdown() override;
+
         /**
-         * @brief Main task execution loop
+         * @brief Main task execution loop (for internal use)
          */
         void run();
 
@@ -47,6 +56,9 @@ namespace control
         ObstacleDetector obstacle_detector_;
         RCInputProcessor rc_processor_;
         SpeedController speed_controller_;
+
+        // Task management
+        TaskHandle_t task_handle_ = nullptr;
 
         /**
          * @brief Process a single frame of control logic

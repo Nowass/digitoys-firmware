@@ -43,11 +43,9 @@ extern "C" void app_main()
     // --- Launch ControlTask ---
     static control::ControlContext ctx = {&lidar, &pwm_driver, &mon};
     static control::ControlTask control_task(&ctx);
-
-    BaseType_t rc = xTaskCreate(
-        ControlTaskWrapper, "ControlTask", 8192,
-        &control_task, tskIDLE_PRIORITY + 2, nullptr);
-    ESP_ERROR_CHECK(rc == pdPASS ? ESP_OK : ESP_FAIL);
+    ESP_ERROR_CHECK(control_task.initialize());
+    ESP_ERROR_CHECK(control_task.start());
+    ESP_LOGI(TAG, "Control task initialized and started");
 
     // Keep app_main idle
     vTaskDelete(nullptr);

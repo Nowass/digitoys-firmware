@@ -50,28 +50,49 @@ This component is responsible for reading, parsing, filtering, and managing LiDA
 
 ```mermaid
 classDiagram
+    class ComponentBase {
+        <<digitoys::core>>
+        +initialize() esp_err_t
+        +start() esp_err_t
+        +stop() esp_err_t
+        +shutdown() esp_err_t
+        +getState() ComponentState
+        +getName() const char*
+    }
+
     class LiDAR {
-        +init(const LiDARConfig&) void
-        +getFilteredPoints() std::vector<PointData>
+        -LiDARConfig cfg_
+        -UART_HAL uart_
+        -Motor_HAL motor_
+        -FramePraser parser_
+        -mutable mutex info_mutex_
+        -ObstacleInfo info_
+        -TaskHandle_t task_handle_
+        +LiDAR(LiDARConfig)
+        +getObstacleInfo() ObstacleInfo
+        -taskLoop() void
+        -evaluateFrame(Points2D) ObstacleInfo
     }
 
     class UART_HAL {
-        +init(const LiDARConfig&) esp_err_t
-        +read(std::vector<uint8_t>&) bool
+        +init(LiDARConfig) esp_err_t
+        +deinit() esp_err_t
+        +read(vector~uint8_t~) bool
     }
 
     class FramePraser {
-        +parse(const std::vector<uint8_t>&) std::optional<std::vector<PointData>>
+        +parse(vector~uint8_t~) optional~vector~PointData~~
     }
 
     class NearDistanceFilter {
         +setThreshold(float) void
-        +apply(const std::vector<PointData>&) std::vector<PointData>
+        +apply(vector~PointData~) vector~PointData~
     }
 
     class Motor_HAL {
-        +start() void
-        +stop() void
+        +start() esp_err_t
+        +stop() esp_err_t
+        +deinit() esp_err_t
     }
 
     class LiDARConfig {
@@ -81,23 +102,105 @@ classDiagram
         +filterDistanceThreshold : float
     }
 
+    class ObstacleInfo {
+        +obstacle : bool
+        +warning : bool
+        +distance : float
+    }
+
+    ComponentBase <|-- LiDAR
     LiDAR --> UART_HAL
     LiDAR --> FramePraser
     LiDAR --> NearDistanceFilter
     LiDAR --> Motor_HAL
+    LiDAR --> ObstacleInfo
 ```
 
 ---
 
 ## Public API
 
-### `LiDAR::init(const LiDARConfig&)`
+### `LiDAR::LiDAR(const LiDARConfig& cfg)`
 
 **Description:**  
-Initializes the LiDAR interface by setting up UART, starting the motor, and preparing internal parsers.
+Creates a LiDAR component with the specified configuration. Inherits from `ComponentBase` for standardized lifecycle management and registers with the centralized logging system.
 
 **Parameters:**  
 - `LiDARConfig& cfg`: UART pins, port number, and filtering threshold
+
+**Example:**
+```cpp
+LiDARConfig cfg = {
+    .uartPort = UART_NUM_1,
+    .txPin = GPIO_NUM_17,
+    .rxPin = GPIO_NUM_16,
+    .filterDistanceThreshold = 0.1f
+};
+LiDAR lidar(cfg);
+```
+
+---
+
+### `LiDAR::initialize()`
+
+**Description:**  
+Initializes the LiDAR component (ComponentBase interface). Sets up UART and motor hardware.
+
+**Returns:**  
+- `ESP_OK` on success, error code otherwise
+
+---
+
+### `LiDAR::start()`
+
+**Description:**  
+Starts the LiDAR motor and creates the processing task. Sets component state to RUNNING.
+
+**Returns:**  
+- `ESP_OK` on success, error code otherwise
+
+---
+
+### `LiDAR::stop()`
+
+**Description:**  
+Stops the LiDAR task and motor. Sets component state to STOPPED.
+
+**Returns:**  
+- `ESP_OK` on success, error code otherwise
+
+---
+
+### `LiDAR::shutdown()`
+
+**Description:**  
+Completely shuts down the LiDAR component and deinitializes hardware.
+
+**Returns:**  
+- `ESP_OK` on success, error code otherwise
+
+---
+
+### `LiDAR::getObstacleInfo()`
+
+**Description:**  
+Returns the latest obstacle detection information from LiDAR processing.
+
+**Returns:**  
+- `ObstacleInfo` struct containing:
+  - `obstacle`: Emergency brake required (bool)
+  - `warning`: Progressive slowdown required (bool)  
+  - `distance`: Distance to closest obstacle (float, meters)
+
+**Example:**
+```cpp
+auto info = lidar.getObstacleInfo();
+if (info.obstacle) {
+    // Apply emergency brake
+} else if (info.warning) {
+    // Apply gradual slowdown
+}
+```
 
 **Returns:**  
 - `void`
@@ -109,17 +212,7 @@ LiDARConfig cfg{UART_NUM_1, GPIO_NUM_17, GPIO_NUM_16, 0.1f};
 lidar.init(cfg);
 ```
 
----
 
-### `LiDAR::getFilteredPoints()`
-
-**Description:**  
-Returns the most recently parsed and filtered scan data.
-
-**Returns:**  
-- `std::vector<PointData>` – each point includes distance (m), angle (deg), confidence
-
----
 
 ### `UART_HAL::init(const LiDARConfig&)`
 

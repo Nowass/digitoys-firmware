@@ -76,6 +76,24 @@ All components are orchestrated by `ControlTask` from `main.cpp`, which:
 - Reports comprehensive system stats to the web dashboard
 - Manages state transitions and provides diagnostic logging
 
+### 🔧 Supporting Infrastructure
+
+**DigiToys Core** (`digitoys-core`):
+- **Centralized Logging System**: Production-ready logging with simplified 2-parameter API
+- **Component Base Classes**: Standardized component lifecycle management  
+- **Configuration Framework**: Validation and factory pattern for component configs
+- **Error Handling**: Unified error reporting and recovery mechanisms
+- **Constants Management**: Centralized system constants and configurations
+
+All components use the **centralized logging system** for unified debugging and monitoring:
+```cpp
+// Each component registers once
+DIGITOYS_REGISTER_COMPONENT("ComponentName", "TAG");
+
+// Clean 2-parameter logging everywhere  
+DIGITOYS_LOGI("ComponentName", "Message with %d parameters", count);
+```
+
 The system uses a multi-task FreeRTOS architecture with priority-based scheduling to ensure real-time performance for safety-critical operations.
 
 👉 [See complete architecture overview](./architecture-overview.md)  

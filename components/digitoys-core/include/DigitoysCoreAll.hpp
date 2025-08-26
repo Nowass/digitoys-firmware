@@ -51,8 +51,12 @@ namespace digitoys::core
  *
  * 3. Logging:
  *    ```cpp
+ *    // Register component once during initialization
+ *    DIGITOYS_REGISTER_COMPONENT("MyComponent", "MY_TAG");
+ *    
+ *    // Use simplified 2-parameter logging everywhere
  *    DIGITOYS_LOGI("MyComponent", "Operation completed successfully");
- *    DIGITOYS_LOGE("MyComponent", error_code);
+ *    DIGITOYS_LOGE("MyComponent", "Failed with error: %d", error_code);
  *    ```
  *
  * 4. Using constants:

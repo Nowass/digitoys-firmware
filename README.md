@@ -198,6 +198,7 @@ graph TB
 | **lidar-driver** | LiDAR sensor interface and data processing | [📖 Details](./doc/lidar-driver.md) |
 | **adas-pwm-driver** | PWM signal capture and brake override | [📖 Details](./doc/adas-pwm-driver.md) |
 | **monitor** | System telemetry and web dashboard | [📖 Details](./doc/monitor.md) |
+| **digitoys-core** | Infrastructure framework and centralized logging | [📖 Details](./doc/centralized-logging.md) |
 
 👉 **[See complete component overview](./doc/component-details.md)**
 
@@ -217,6 +218,33 @@ The firmware uses a multi-task architecture optimized for real-time safety contr
 - **CPU Utilization**: ~25% under normal operation
 
 👉 **[See detailed task architecture documentation](./doc/freertos-task-architecture.md)**
+
+## 📋 Centralized Logging System
+
+The firmware includes a **production-ready centralized logging system** that provides unified logging management across all components with a simplified API:
+
+### Key Features
+- **Simplified 2-parameter macros**: No redundant tag specification
+- **Automatic component registration**: Register once, use everywhere
+- **Runtime log level control**: Per-component debugging without rebuilding
+- **Complete component coverage**: All 6 major components migrated
+
+### Usage Example
+```cpp
+// Register component once during initialization
+DIGITOYS_REGISTER_COMPONENT("MyComponent", "MY_TAG");
+
+// Use clean 2-parameter logging everywhere
+DIGITOYS_LOGI("MyComponent", "Operation completed successfully");
+DIGITOYS_LOGW("MyComponent", "Warning: value %.2f out of range", value);
+DIGITOYS_LOGE("MyComponent", "Failed with error: %d", error_code);
+
+// Runtime control
+auto& logger = digitoys::core::Logger::getInstance();
+logger.setComponentLogLevel("MyComponent", ESP_LOG_DEBUG);
+```
+
+👉 **[See complete logging documentation](./doc/centralized-logging.md)**
 
 ## <a name='DevelopmentGuide'></a>📁 Development Guide
 
@@ -246,10 +274,14 @@ components/
 
 ```cpp
 #pragma once
+#include <string>
 
 class MyComponent {
 public:
-    static void do_something();
+    MyComponent(const std::string& name);
+    void do_something();
+private:
+    std::string name_;
 };
 ```
 
@@ -257,10 +289,25 @@ public:
 
 ```cpp
 #include "MyComponent.hpp"
-#include <stdio.h>
+#include <Logger.hpp>
+
+MyComponent::MyComponent(const std::string& name) : name_(name) {
+    // Register with centralized logging system
+    DIGITOYS_REGISTER_COMPONENT("MyComponent", "MY_TAG");
+    
+    DIGITOYS_LOGI("MyComponent", "Component '%s' initialized", name_.c_str());
+}
 
 void MyComponent::do_something() {
-    printf("MyComponent is doing something!\n");
+    DIGITOYS_LOGI("MyComponent", "Component '%s' is doing something!", name_.c_str());
+    
+    // Example of debug logging
+    DIGITOYS_LOGD("MyComponent", "Debug info: processing operation");
+    
+    // Example of error logging  
+    if (some_error_condition) {
+        DIGITOYS_LOGE("MyComponent", "Operation failed with error code: %d", error);
+    }
 }
 ```
 
@@ -271,10 +318,10 @@ void MyComponent::do_something() {
 ```cmake
 idf_component_register(SRCS "MyComponent.cpp"
                        INCLUDE_DIRS "."
-                       REQUIRES "esp_log")
+                       REQUIRES "digitoys-core")
 ```
 
-> This tells ESP-IDF which sources and headers to compile and which other components this one needs.
+> This tells ESP-IDF which sources and headers to compile and which other components this one needs. The `digitoys-core` requirement gives you access to the centralized logging system.
 
 ### <a name='AddtheComponenttotheProject'></a>📦 Add the Component to the Project
 

@@ -43,6 +43,9 @@ namespace adas
         esp_err_t start(DutyCallback cb);
         esp_err_t stop();
 
+        /// Read current duty cycle directly (for getting fresh RC input)
+        float readCurrentDuty(uint32_t timeout_ms = 100);
+
     private:
         static bool IRAM_ATTR onRecvDone(rmt_channel_handle_t ch,
                                          const rmt_rx_done_event_data_t *evt,
@@ -58,6 +61,9 @@ namespace adas
         DutyCallback callback_;
         static constexpr size_t DEFAULT_BUFFER = 64;
         bool running_ = false;
+
+        // For direct duty reading
+        float latest_duty_ = -1.0f;
     };
 
     class LedcOutput : public IPwmChannel
@@ -89,9 +95,12 @@ namespace adas
         float lastDuty() const { return last_duty_; }
 
         /// Check if throttle is pressed outside neutral range.
-        /// @param center duty ratio considered neutral (default 9%)
-        /// @param range width of neutral band (default 1%)
-        bool throttlePressed(float center = 0.09f, float range = 0.01f) const;
+        /// @param center duty ratio considered neutral (measured from RC)
+        /// @param range width of neutral band (default 0.8% for sensitivity)
+        bool throttlePressed(float center = 0.0856f, float range = 0.008f) const;
+
+        /// Read current duty directly from RMT (gets fresh RC input)
+        float readCurrentDuty(uint32_t timeout_ms = 100);
 
     private:
         PwmChannelConfig cfg_;
@@ -138,12 +147,20 @@ namespace adas
 
         /// Return true if throttle channel idx is pressed outside neutral band
         bool isThrottlePressed(size_t idx,
-                              float center = 0.09f,
-                              float range = 0.01f) const
+                               float center = 0.0856f,
+                               float range = 0.008f) const
         {
             if (idx >= channels_.size())
                 return false;
             return channels_[idx]->throttlePressed(center, range);
+        }
+
+        /// Read current RC input directly (bypasses passthrough state)
+        float readCurrentDutyInput(size_t idx, uint32_t timeout_ms = 100)
+        {
+            if (idx >= channels_.size())
+                return -1.0f;
+            return channels_[idx]->readCurrentDuty(timeout_ms);
         }
 
     private:

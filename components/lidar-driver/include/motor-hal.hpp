@@ -21,7 +21,7 @@ namespace lidar
     gpio_num_t gpioPin_ = GPIO_NUM_NC;
     ledc_channel_t pwmChannel_ = LEDC_CHANNEL_0;
     int pwmResolutionBits_ = 10;
-    int pwmDuty_ = 0;
+    int pwmDuty_ = 512; // 50% duty cycle
     bool isInitialized_ = false;
   };
 

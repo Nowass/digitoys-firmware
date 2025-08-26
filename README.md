@@ -1,4 +1,4 @@
-# 🚀 ESP32-C6 Firmware Development with VSCode Dev Container
+# 🚀 ESP32-C6 DigiToys ADAS Firmware
 
 <!-- vscode-markdown-toc -->
 
@@ -10,19 +10,25 @@
   - [📟 Monitor Serial Output](#MonitorSerialOutput)
   - [🐞 Start Debugging (JTAG)](#StartDebuggingJTAG)
 - [🔄 Reopening the Dev Container](#ReopeningtheDevContainer)
-- [✅ What’s Preconfigured](#WhatsPreconfigured)
-- [📁 Create a New Component Folder](#CreateaNewComponentFolder)
-- [✍️ Implement the Component](#ImplementtheComponent)
-- [⚙️ Add a `CMakeLists.txt` for the Component](#AddaCMakeLists.txtfortheComponent)
-- [📦 Add the Component to the Project](#AddtheComponenttotheProject)
-- [🧪 Use the Component in Your Application](#UsetheComponentinYourApplication)
-- [🔄 Reconfigure & Build](#ReconfigureBuild)
+- [✅ What's Preconfigured](#WhatsPreconfigured)
+- [🏗️ Architecture Overview](#ArchitectureOverview)
+- [📦 Components](#Components)
+- [⚙️ FreeRTOS Tasks](#FreeRTOSTasks)
+- [📁 Development Guide](#DevelopmentGuide)
+  - [📁 Create a New Component Folder](#CreateaNewComponentFolder)
+  - [✍️ Implement the Component](#ImplementtheComponent)
+  - [⚙️ Add a `CMakeLists.txt` for the Component](#AddaCMakeLists.txtfortheComponent)
+  - [📦 Add the Component to the Project](#AddtheComponenttotheProject)
+  - [🧪 Use the Component in Your Application](#UsetheComponentinYourApplication)
+  - [🔄 Reconfigure & Build](#ReconfigureBuild)
 
 <!-- vscode-markdown-toc-config
 	numbering=false
 	autoSave=true
 	/vscode-markdown-toc-config -->
 <!-- /vscode-markdown-toc -->
+
+This project implements **Autonomous Emergency Braking (AEB)** for RC vehicles using **ESP32-C6** and **LiDAR sensor technology**. The firmware provides ADAS-like safety features including obstacle detection, dynamic braking thresholds, and emergency intervention while maintaining normal RC vehicle operation.
 
 This project uses **Visual Studio Code Dev Containers** and the **ESP-IDF extension** to provide a fully isolated, reproducible development environment for ESP32-C6 firmware development — without polluting your host system.
 
@@ -44,7 +50,7 @@ Make sure the following are installed on your machine:
 
    ```bash
    git clone https://github.com/Nowass/digitoys-firmware
-   cd digitoy-firmware
+   cd digitoys-firmware
    ```
 
 2. **Open the folder in VSCode**:
@@ -60,7 +66,7 @@ Make sure the following are installed on your machine:
    Or manually via Command Palette:
    `F1` → `Dev Containers: Reopen in Container`
 
-   > In case the docker permission is missing fro the current user run he following:
+   > In case the docker permission is missing from the current user run the following:
    ```bash
    sudo usermod -aG docker $USER
    sudo reboot
@@ -80,7 +86,7 @@ Use the **VSCode status bar and Command Palette (`F1`)** to access the most comm
 
 ### <a name='BuildtheProject'></a>🧱 Build the Project
 
-- 📥 Click the **“Build”** button in the **status bar**
+- 📥 Click the **"Build"** button in the **status bar**
   or
 - Press `F1` → type `ESP-IDF: Build your project`
 
@@ -89,7 +95,7 @@ This runs `idf.py build` behind the scenes and compiles your firmware.
 ### <a name='FlashtheFirmwaretotheESP32-C6JTAG'></a>🔥 Flash the Firmware to the ESP32-C6 (JTAG)
 
 - 🔌 Connect your board to USB/JTAG
-- 📦 Click **“Flash”** in the status bar
+- 📦 Click **"Flash"** in the status bar
   or
 - Press `F1` → `ESP-IDF: Flash your project`
 
@@ -124,7 +130,7 @@ To change it:
 
 1. Connect the board to USB/JTAG debugger
 2. Press `F5` or go to the **Run and Debug** panel
-3. Select the **“Launch”** debug configuration
+3. Select the **"Launch"** debug configuration
 
 ## <a name='ReopeningtheDevContainer'></a>🔄 Reopening the Dev Container
 
@@ -136,7 +142,7 @@ To exit back to host:
 
 - `F1` → `Dev Containers: Reopen Folder Locally`
 
-## <a name='WhatsPreconfigured'></a>✅ What’s Preconfigured
+## <a name='WhatsPreconfigured'></a>✅ What's Preconfigured
 
 - ESP-IDF v6.0 toolchain for ESP32-C6
 - Python virtual environment with all required packages
@@ -145,11 +151,78 @@ To exit back to host:
 - Serial monitor
 - Fully isolated and reproducible development environment
 
-# 🧩 Adding a New Component
+## <a name='ArchitectureOverview'></a>🏗️ Architecture Overview
+
+The DigiToys firmware implements an **Autonomous Emergency Braking (AEB)** system with the following key features:
+
+- **Real-time obstacle detection** using LiDAR sensor (LD19 360° LiDAR)
+- **RC signal passthrough** with emergency override capability
+- **Dynamic safety thresholds** based on vehicle speed
+- **Progressive intervention**: Warning → Slowdown → Emergency brake
+- **Web-based monitoring** dashboard for telemetry and diagnostics
+
+### System Components
+
+```mermaid
+graph TB
+    subgraph "Hardware Layer"
+        LIDAR[LiDAR Sensor]
+        RC[RC Receiver]
+        ESC[ESC/Motor]
+        ESP[ESP32-C6]
+    end
+    
+    subgraph "Software Components"
+        CT[Control Task]
+        LD[LiDAR Driver]
+        PWM[PWM Driver]
+        MON[Monitor]
+    end
+    
+    LIDAR -->|UART| ESP
+    RC -->|PWM| ESP
+    ESP -->|PWM Override| ESC
+    
+    CT --> LD
+    CT --> PWM
+    CT --> MON
+```
+
+👉 **[See detailed architecture documentation](./doc/architecture-overview.md)**
+
+## <a name='Components'></a>📦 Components
+
+| Component | Purpose | Documentation |
+|-----------|---------|---------------|
+| **control-task** | Main control logic and safety algorithms | [📖 Details](./doc/control-task.md) |
+| **lidar-driver** | LiDAR sensor interface and data processing | [📖 Details](./doc/lidar-driver.md) |
+| **adas-pwm-driver** | PWM signal capture and brake override | [📖 Details](./doc/adas-pwm-driver.md) |
+| **monitor** | System telemetry and web dashboard | [📖 Details](./doc/monitor.md) |
+
+👉 **[See complete component overview](./doc/component-details.md)**
+
+## <a name='FreeRTOSTasks'></a>⚙️ FreeRTOS Tasks
+
+The firmware uses a multi-task architecture optimized for real-time safety control:
+
+| Task | Priority | Stack | Period | Purpose |
+|------|----------|-------|--------|---------|
+| **ControlTask** | IDLE+2 | 8KB | 50ms | Main safety control logic |
+| **lidar_task** | IDLE+1 | 4KB | 10ms | LiDAR data processing |
+| **rmt_in_task** | IDLE+1 | 4KB | Event | PWM input capture |
+| **httpd** | IDLE+1 | 4KB | Event | Web server monitoring |
+
+- **Control Loop Frequency**: 20Hz (50ms cycle time)
+- **Brake Response Time**: <100ms from obstacle detection
+- **CPU Utilization**: ~25% under normal operation
+
+👉 **[See detailed task architecture documentation](./doc/freertos-task-architecture.md)**
+
+## <a name='DevelopmentGuide'></a>📁 Development Guide
 
 This project supports modular C++ development using **ESP-IDF components**. Components allow you to organize features or libraries (e.g. drivers, logic blocks) into reusable units.
 
-## <a name='CreateaNewComponentFolder'></a>📁 Create a New Component Folder
+### <a name='CreateaNewComponentFolder'></a>📁 Create a New Component Folder
 
 Inside the project root, create the folder `components/my_component`:
 
@@ -167,7 +240,7 @@ components/
     └── CMakeLists.txt
 ```
 
-## <a name='ImplementtheComponent'></a>✍️ Implement the Component
+### <a name='ImplementtheComponent'></a>✍️ Implement the Component
 
 **Example: `MyComponent.hpp`**
 
@@ -191,58 +264,71 @@ void MyComponent::do_something() {
 }
 ```
 
-## <a name='AddaCMakeLists.txtfortheComponent'></a>⚙️ Add a `CMakeLists.txt` for the Component
+### <a name='AddaCMakeLists.txtfortheComponent'></a>⚙️ Add a `CMakeLists.txt` for the Component
 
 **`components/my_component/CMakeLists.txt`**
 
 ```cmake
 idf_component_register(SRCS "MyComponent.cpp"
-                       INCLUDE_DIRS ".")
+                       INCLUDE_DIRS "."
+                       REQUIRES "esp_log")
 ```
 
-ESP-IDF will detect the `.cpp` extension and use `CXX` to compile the component.
+> This tells ESP-IDF which sources and headers to compile and which other components this one needs.
 
-## <a name='AddtheComponenttotheProject'></a>📦 Add the Component to the Project
+### <a name='AddtheComponenttotheProject'></a>📦 Add the Component to the Project
 
-If your project doesn’t already have this in the top-level `CMakeLists.txt`, add it:
+Edit the **root** `CMakeLists.txt` (if the component isn't auto-detected):
 
 ```cmake
 set(EXTRA_COMPONENT_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/components
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/components/my_component
 )
 ```
 
-> ⚠️ If `components/` already exists and you plan to have multiple components, just add the folder — not individual subfolders.
+> **Often this is not needed** — ESP-IDF automatically finds components in the `components/` folder.
 
-## <a name='UsetheComponentinYourApplication'></a>🧪 Use the Component in Your Application
+### <a name='UsetheComponentinYourApplication'></a>🧪 Use the Component in Your Application
 
-**Example: `src/main.cpp`**
+**In `main/main.cpp`:**
 
 ```cpp
 #include "MyComponent.hpp"
 
-extern "C" void app_main(void)
-{
+extern "C" void app_main() {
     MyComponent::do_something();
 }
 ```
 
-> 💡 The `extern "C"` around `app_main` is required because ESP-IDF looks for a **C-style symbol**.
+> Don't forget to add `my_component` to the `REQUIRES` list in `main/CMakeLists.txt`:
 
-## <a name='ReconfigureBuild'></a>🔄 Reconfigure & Build
-
-**Via ESP-IDF Extension:**
-
-- `F1` → `ESP-IDF: Reconfigure project`
-- `F1` → `ESP-IDF: Build your project`
-
-**Or from terminal:**
-
-```bash
-idf.py reconfigure
-idf.py build
+```cmake
+idf_component_register(SRCS "main.cpp"
+                       INCLUDE_DIRS "."
+                       REQUIRES "my_component")
 ```
+
+### <a name='ReconfigureBuild'></a>🔄 Reconfigure & Build
+
+1. **Clean & reconfigure**:
+   - `F1` → `ESP-IDF: Full clean`
+   - `F1` → `ESP-IDF: Build your project`
+
+2. **Flash and test**:
+   - `F1` → `ESP-IDF: Flash your project`
+
+---
+
+## 📚 Complete Documentation
+
+For comprehensive system documentation, see:
+
+- **[📖 Documentation Index](./doc/README.md)** - Complete documentation overview
+- **[🏗️ Architecture Details](./doc/architecture-overview.md)** - System design and data flow
+- **[⚙️ Task Architecture](./doc/freertos-task-architecture.md)** - FreeRTOS task details
+- **[🛡️ Safety & Control Logic](./doc/safety-and-control-logic.md)** - Safety mechanisms
+- **[⏱️ Performance Analysis](./doc/timing-and-performance.md)** - Timing and optimization
 
 Happy hacking! ✨
 

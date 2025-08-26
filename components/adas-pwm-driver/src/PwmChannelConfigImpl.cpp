@@ -1,5 +1,6 @@
 #include "adas_pwm_driver.hpp"
-#include "DigitoysCoreAll.hpp"
+#include <DigitoysCoreAll.hpp>
+#include <Logger.hpp>
 
 using namespace digitoys::core;
 using namespace digitoys::constants;
@@ -18,7 +19,7 @@ namespace adas
         // Ensure RX and TX pins are different
         if (rx_gpio == tx_gpio)
         {
-            DIGITOYS_LOGE(TAG, "RX GPIO (%d) and TX GPIO (%d) cannot be the same", rx_gpio, tx_gpio);
+            DIGITOYS_LOGE("PwmChannelConfig", "CONFIG", "RX GPIO (%d) and TX GPIO (%d) cannot be the same", rx_gpio, tx_gpio);
             return ESP_ERR_INVALID_ARG;
         }
 
@@ -29,7 +30,7 @@ namespace adas
         // Validate PWM frequency (typical RC frequencies: 50-200 Hz)
         DIGITOYS_ERROR_CHECK(TAG, ConfigValidator::validateFrequency(pwm_freq_hz, 20, 1000, "PWM frequency"));
 
-        DIGITOYS_LOGI(TAG, "Configuration validation passed");
+        DIGITOYS_LOGI("PwmChannelConfig", "CONFIG", "Configuration validation passed");
         return ESP_OK;
     }
 
@@ -68,7 +69,7 @@ namespace adas
         digitoys::core::ComponentConfigFactory::validateConfigCreation("Throttle PWM Config", result);
         if (result == ESP_OK)
         {
-            DIGITOYS_LOGI(TAG, "Created throttle config: RX:%d, TX:%d, CH:%d, TIMER:%d",
+            DIGITOYS_LOGI("PwmChannelConfig", "CONFIG", "Created throttle config: RX:%d, TX:%d, CH:%d, TIMER:%d",
                           config.rx_gpio, config.tx_gpio, config.ledc_channel, config.ledc_timer);
         }
         return config;

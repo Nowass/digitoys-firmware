@@ -1,5 +1,6 @@
 #include "ConfigValidator.hpp"
 #include "ComponentError.hpp"
+#include "Logger.hpp"
 #include <soc/gpio_num.h>
 
 namespace digitoys::core
@@ -11,7 +12,7 @@ namespace digitoys::core
     {
         if (pin < 0 || pin >= GPIO_NUM_MAX)
         {
-            DIGITOYS_LOGE(TAG, "Invalid GPIO pin %d for %s (valid range: 0-%d)",
+            DIGITOYS_LOGE("ConfigValidator", "CONFIG", "Invalid GPIO pin %d for %s (valid range: 0-%d)",
                           pin, context, GPIO_NUM_MAX - 1);
             return ESP_ERR_INVALID_ARG;
         }
@@ -19,7 +20,7 @@ namespace digitoys::core
         // Check for pins that cannot be used
         if (pin == GPIO_NUM_NC)
         {
-            DIGITOYS_LOGE(TAG, "GPIO_NUM_NC cannot be used for %s", context);
+            DIGITOYS_LOGE("ConfigValidator", "CONFIG", "GPIO_NUM_NC cannot be used for %s", context);
             return ESP_ERR_INVALID_ARG;
         }
 
@@ -40,7 +41,7 @@ namespace digitoys::core
     {
         if (value < min_val || value > max_val)
         {
-            DIGITOYS_LOGE(TAG, "Value %.3f out of range for %s (valid range: %.3f-%.3f)",
+            DIGITOYS_LOGE("ConfigValidator", "CONFIG", "Value %.3f out of range for %s (valid range: %.3f-%.3f)",
                           value, context, min_val, max_val);
             return ESP_ERR_INVALID_ARG;
         }
@@ -51,7 +52,7 @@ namespace digitoys::core
     {
         if (value < min_val || value > max_val)
         {
-            DIGITOYS_LOGE(TAG, "Value %d out of range for %s (valid range: %d-%d)",
+            DIGITOYS_LOGE("ConfigValidator", "CONFIG", "Value %d out of range for %s (valid range: %d-%d)",
                           value, context, min_val, max_val);
             return ESP_ERR_INVALID_ARG;
         }
@@ -62,7 +63,7 @@ namespace digitoys::core
     {
         if (port < UART_NUM_0 || port >= UART_NUM_MAX)
         {
-            DIGITOYS_LOGE(TAG, "Invalid UART port %d for %s (valid range: %d-%d)",
+            DIGITOYS_LOGE("ConfigValidator", "CONFIG", "Invalid UART port %d for %s (valid range: %d-%d)",
                           port, context, UART_NUM_0, UART_NUM_MAX - 1);
             return ESP_ERR_INVALID_ARG;
         }
@@ -73,7 +74,7 @@ namespace digitoys::core
     {
         if (channel < LEDC_CHANNEL_0 || channel >= LEDC_CHANNEL_MAX)
         {
-            DIGITOYS_LOGE(TAG, "Invalid LEDC channel %d for %s (valid range: %d-%d)",
+            DIGITOYS_LOGE("ConfigValidator", "CONFIG", "Invalid LEDC channel %d for %s (valid range: %d-%d)",
                           channel, context, LEDC_CHANNEL_0, LEDC_CHANNEL_MAX - 1);
             return ESP_ERR_INVALID_ARG;
         }
@@ -84,7 +85,7 @@ namespace digitoys::core
     {
         if (timer < LEDC_TIMER_0 || timer >= LEDC_TIMER_MAX)
         {
-            DIGITOYS_LOGE(TAG, "Invalid LEDC timer %d for %s (valid range: %d-%d)",
+            DIGITOYS_LOGE("ConfigValidator", "CONFIG", "Invalid LEDC timer %d for %s (valid range: %d-%d)",
                           timer, context, LEDC_TIMER_0, LEDC_TIMER_MAX - 1);
             return ESP_ERR_INVALID_ARG;
         }
@@ -95,7 +96,7 @@ namespace digitoys::core
     {
         if (freq_hz < min_freq || freq_hz > max_freq)
         {
-            DIGITOYS_LOGE(TAG, "Frequency %lu Hz out of range for %s (valid range: %lu-%lu Hz)",
+            DIGITOYS_LOGE("ConfigValidator", "CONFIG", "Frequency %lu Hz out of range for %s (valid range: %lu-%lu Hz)",
                           freq_hz, context, min_freq, max_freq);
             return ESP_ERR_INVALID_ARG;
         }
@@ -116,7 +117,7 @@ namespace digitoys::core
     {
         if (size < min_size || size > max_size)
         {
-            DIGITOYS_LOGE(TAG, "Buffer size %zu out of range for %s (valid range: %zu-%zu)",
+            DIGITOYS_LOGE("ConfigValidator", "CONFIG", "Buffer size %zu out of range for %s (valid range: %zu-%zu)",
                           size, context, min_size, max_size);
             return ESP_ERR_INVALID_ARG;
         }

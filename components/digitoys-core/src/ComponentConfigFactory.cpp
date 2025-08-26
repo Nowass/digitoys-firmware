@@ -1,5 +1,6 @@
 #include "ComponentConfigFactory.hpp"
 #include "ComponentError.hpp"
+#include "Logger.hpp"
 
 namespace digitoys::core
 {
@@ -10,11 +11,11 @@ namespace digitoys::core
     {
         if (validation_result == ESP_OK)
         {
-            DIGITOYS_LOGI(TAG, "%s created and validated successfully", config_name);
+            DIGITOYS_LOGI("ConfigFactory", "CONFIG", "%s created and validated successfully", config_name);
         }
         else
         {
-            DIGITOYS_LOGE(TAG, "%s validation failed: %s", config_name,
+            DIGITOYS_LOGE("ConfigFactory", "CONFIG", "%s validation failed: %s", config_name,
                           ComponentError::errorToString(validation_result));
         }
         return validation_result;

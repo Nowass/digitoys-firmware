@@ -44,24 +44,6 @@ namespace digitoys::core
 } // namespace digitoys::core
 
 /**
- * @brief Unified logging macros with component context
- *
- * These macros provide consistent logging format across all components
- * with function name and component context.
- */
-#define DIGITOYS_LOGI(component, format, ...) \
-    ESP_LOGI(component, "[%s] " format, __func__, ##__VA_ARGS__)
-
-#define DIGITOYS_LOGW(component, format, ...) \
-    ESP_LOGW(component, "[%s] " format, __func__, ##__VA_ARGS__)
-
-#define DIGITOYS_LOGE(component, format, ...) \
-    ESP_LOGE(component, "[%s] " format, __func__, ##__VA_ARGS__)
-
-#define DIGITOYS_LOGD(component, format, ...) \
-    ESP_LOGD(component, "[%s] " format, __func__, ##__VA_ARGS__)
-
-/**
  * @brief Component-aware error checking macro
  *
  * Checks error code and logs with component context if not ESP_OK.

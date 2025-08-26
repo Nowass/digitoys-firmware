@@ -8,7 +8,8 @@
  * - Component lifecycle management (IComponent, ComponentBase)
  * - Unified error handling (ComponentError)
  * - System constants (Constants)
- * - Logging macros (DIGITOYS_LOG*)
+ * - Centralized logging (Logger)
+ * - Configuration validation and factories
  */
 
 #include "IComponent.hpp"
@@ -17,6 +18,7 @@
 #include "Constants.hpp"
 #include "ConfigValidator.hpp"
 #include "ComponentConfigFactory.hpp"
+#include "Logger.hpp"
 
 namespace digitoys::core
 {

@@ -1,5 +1,6 @@
 #include "LiDARConfig.hpp"
-#include "DigitoysCoreAll.hpp"
+#include <DigitoysCoreAll.hpp>
+#include <Logger.hpp>
 
 using namespace digitoys::core;
 using namespace digitoys::constants;
@@ -39,12 +40,12 @@ namespace lidar
         // Logical validation: warning threshold should be >= obstacle threshold
         if (warningThreshold < obstacleThreshold)
         {
-            DIGITOYS_LOGE(TAG, "Warning threshold (%.2f m) must be >= obstacle threshold (%.2f m)",
+            DIGITOYS_LOGE("LiDARConfig", "CONFIG", "Warning threshold (%.2f m) must be >= obstacle threshold (%.2f m)",
                           warningThreshold, obstacleThreshold);
             return ESP_ERR_INVALID_ARG;
         }
 
-        DIGITOYS_LOGI(TAG, "Configuration validation passed");
+        DIGITOYS_LOGI("LiDARConfig", "CONFIG", "Configuration validation passed");
         return ESP_OK;
     }
 
@@ -105,7 +106,7 @@ namespace lidar
         digitoys::core::ComponentConfigFactory::validateConfigCreation("Production LiDAR Config", result);
         if (result == ESP_OK)
         {
-            DIGITOYS_LOGI(TAG, "Created production config: UART%d, TX:%d, RX:%d, Motor:%d",
+            DIGITOYS_LOGI("LiDARConfig", "CONFIG", "Created production config: UART%d, TX:%d, RX:%d, Motor:%d",
                           config.uartPort, config.txPin, config.rxPin, config.motorPin);
         }
         return config;

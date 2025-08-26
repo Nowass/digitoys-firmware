@@ -3,6 +3,7 @@
 #include <driver/gpio.h>
 #include <driver/uart.h>
 #include <driver/ledc.h>
+#include <esp_log.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
@@ -194,6 +195,41 @@ namespace digitoys::constants
         // Task configuration
         constexpr size_t TASK_STACK_SIZE = 4096;                    ///< Monitor task stack size
         constexpr UBaseType_t TASK_PRIORITY = tskIDLE_PRIORITY + 1; ///< Monitor task priority
+    }
+
+    /**
+     * @brief Centralized logging configuration
+     */
+    namespace logging
+    {
+        // Component TAG definitions
+        constexpr const char *TAG_MAIN = "MAIN";
+        constexpr const char *TAG_LIDAR = "LIDAR";
+        constexpr const char *TAG_PWM = "PWM";
+        constexpr const char *TAG_CONTROL = "CONTROL";
+        constexpr const char *TAG_MONITOR = "MONITOR";
+        constexpr const char *TAG_SYSTEM = "SYSTEM";
+        constexpr const char *TAG_CORE = "CORE";
+        constexpr const char *TAG_CONFIG = "CONFIG";
+
+        // Component names for logger registration
+        constexpr const char *COMPONENT_MAIN = "Main";
+        constexpr const char *COMPONENT_LIDAR = "LiDAR";
+        constexpr const char *COMPONENT_PWM = "PWM";
+        constexpr const char *COMPONENT_CONTROL = "Control";
+        constexpr const char *COMPONENT_MONITOR = "Monitor";
+        constexpr const char *COMPONENT_SYSTEM = "System";
+        constexpr const char *COMPONENT_CORE = "Core";
+        constexpr const char *COMPONENT_CONFIG = "Config";
+
+        // Default log levels
+        constexpr esp_log_level_t DEFAULT_LEVEL = ESP_LOG_INFO;
+        constexpr esp_log_level_t DEBUG_LEVEL = ESP_LOG_DEBUG;
+        constexpr esp_log_level_t VERBOSE_LEVEL = ESP_LOG_VERBOSE;
+
+        // Logging intervals and thresholds
+        constexpr uint32_t MAX_LOG_MESSAGE_SIZE = 256;
+        constexpr uint32_t LOG_BUFFER_SIZE = 1024;
     }
 
 } // namespace digitoys::constants

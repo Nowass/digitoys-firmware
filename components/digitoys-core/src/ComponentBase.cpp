@@ -1,5 +1,6 @@
 #include "ComponentBase.hpp"
 #include "ComponentError.hpp"
+#include "Logger.hpp"
 
 namespace digitoys::core
 {
@@ -9,7 +10,7 @@ namespace digitoys::core
     ComponentBase::ComponentBase(const char *name)
         : component_name_(name)
     {
-        DIGITOYS_LOGD(TAG, "Created component: %s", name);
+        DIGITOYS_LOGD("ComponentBase", "CORE", "Created component: %s", name);
     }
 
     bool ComponentBase::isInitialized() const
@@ -36,7 +37,7 @@ namespace digitoys::core
     {
         if (!isValidTransition(state_, new_state))
         {
-            DIGITOYS_LOGE(component_name_, "Invalid state transition from %s to %s",
+            DIGITOYS_LOGE("ComponentBase", "CORE", "Invalid state transition from %s to %s",
                           componentStateToString(state_), componentStateToString(new_state));
             return ESP_ERR_INVALID_STATE;
         }
@@ -50,7 +51,7 @@ namespace digitoys::core
 
     void ComponentBase::logStateChange(ComponentState from, ComponentState to)
     {
-        DIGITOYS_LOGI(component_name_, "State change: %s -> %s",
+        DIGITOYS_LOGI("ComponentBase", "CORE", "State change: %s -> %s",
                       componentStateToString(from), componentStateToString(to));
     }
 

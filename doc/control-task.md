@@ -111,9 +111,21 @@ classDiagram
     }
 
     class ControlContext {
-        +lidar::LiDAR* lidar
-        +adas::PwmDriver* pwm_driver
-        +monitor::Monitor* monitor
+        +LiDAR* lidar
+        +PwmDriver* pwm_driver
+        +Monitor* monitor
+    }
+
+    class LiDAR {
+        <<lidar::LiDAR>>
+    }
+
+    class PwmDriver {
+        <<adas::PwmDriver>>
+    }
+
+    class Monitor {
+        <<monitor::Monitor>>
     }
 
     ComponentBase <|-- ControlTask
@@ -122,9 +134,9 @@ classDiagram
     ControlTask --> RCInputProcessor
     ControlTask --> SpeedController
     ControlTask --> ControlContext
-    ControlContext --> "lidar::LiDAR"
-    ControlContext --> "adas::PwmDriver"
-    ControlContext --> "monitor::Monitor"
+    ControlContext --> LiDAR
+    ControlContext --> PwmDriver
+    ControlContext --> Monitor
 ```
 
 ## Control Flow State Machine

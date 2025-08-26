@@ -2,10 +2,20 @@
 #include <driver/gpio.h>
 #include <driver/ledc.h>
 #include <esp_log.h>
+#include <cmath>
 
 namespace lidar
 {
 
+    static uint32_t duty_from_percent(unsigned bits, float pct)
+    {
+        const uint32_t max = (1u << bits) - 1u;
+        if (pct < 0)
+            pct = 0;
+        if (pct > 100)
+            pct = 100;
+        return lroundf(max * (pct / 100.f));
+    }
     namespace
     {
         constexpr const char *TAG = "Motor_HAL";
@@ -36,9 +46,11 @@ namespace lidar
             .duty_resolution = static_cast<ledc_timer_bit_t>(pwmResolutionBits_),
             .timer_num = LEDC_TIMER_0,
             .freq_hz = cfg.motorFreqHz,
-            .clk_cfg = LEDC_AUTO_CLK};
+            .clk_cfg = LEDC_USE_PLL_DIV_CLK,
+            .deconfigure = false,
+        };
 
-        ESP_ERROR_CHECK_WITHOUT_ABORT(ledc_timer_config(&timerCfg));
+        esp_err_t err = ESP_ERROR_CHECK_WITHOUT_ABORT(ledc_timer_config(&timerCfg));
 
         // Configure LEDC channel
         ledc_channel_config_t channelCfg = {
@@ -47,14 +59,17 @@ namespace lidar
             .channel = pwmChannel_,
             .intr_type = LEDC_INTR_DISABLE,
             .timer_sel = LEDC_TIMER_0,
-            .duty = 0, // start with motor off
-            .hpoint = 0};
+            .duty = duty_from_percent(pwmResolutionBits_, 50.0f), // hold ~50% duty for ~300 ms to enter external mode
+            .hpoint = 0,
+            .sleep_mode = LEDC_SLEEP_MODE_NO_ALIVE_NO_PD,
+            .flags = {.output_invert = 0},
+        };
 
-        ESP_ERROR_CHECK_WITHOUT_ABORT(ledc_channel_config(&channelCfg));
+        err = ESP_ERROR_CHECK_WITHOUT_ABORT(ledc_channel_config(&channelCfg));
 
         isInitialized_ = true;
-        ESP_LOGI(TAG, "Motor HAL initialized on pin %d (stopped)", gpioPin_);
-        return stop(); // Explicitly set duty to 0%
+        ESP_LOGI(TAG, "Motor HAL initialized on pin %d", gpioPin_);
+        return err;
     }
 
     esp_err_t Motor_HAL::start()

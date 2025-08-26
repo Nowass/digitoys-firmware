@@ -135,7 +135,8 @@ namespace adas
             .duty_resolution = LEDC_TIMER_15_BIT,
             .timer_num = cfg_.ledc_timer,
             .freq_hz = cfg_.pwm_freq_hz,
-            .clk_cfg = LEDC_AUTO_CLK,
+            .clk_cfg = LEDC_USE_PLL_DIV_CLK,
+            .deconfigure = false,
         };
         ESP_ERROR_CHECK(ledc_timer_config(&tcfg));
 
@@ -147,6 +148,8 @@ namespace adas
             .timer_sel = cfg_.ledc_timer,
             .duty = 0,
             .hpoint = 0,
+            .sleep_mode = LEDC_SLEEP_MODE_NO_ALIVE_NO_PD,
+            .flags = {.output_invert = 0},
         };
         ESP_ERROR_CHECK(ledc_channel_config(&ccfg));
         max_duty_ = (1 << LEDC_TIMER_15_BIT) - 1;

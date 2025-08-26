@@ -338,8 +338,8 @@ extern "C" void app_main()
         .angleMinDeg = 347.5f,
         .angleMaxDeg = 12.5f,
         .motorPin = GPIO_NUM_3,
-        .motorChannel = LEDC_CHANNEL_1,
-        .motorFreqHz = 50000,
+        .motorChannel = LEDC_CHANNEL_0,
+        .motorFreqHz = 30000,
         .motorDutyPct = 50};
     static lidar::LiDAR lidar{cfg};
     ESP_ERROR_CHECK(lidar.initialize());
@@ -347,7 +347,7 @@ extern "C" void app_main()
 
     // --- PWM passthrough driver (throttle only) ---
     adas::PwmChannelConfig thr_cfg = {GPIO_NUM_18, GPIO_NUM_19,
-                                      LEDC_CHANNEL_0, LEDC_TIMER_0, 62};
+                                      LEDC_CHANNEL_1, LEDC_TIMER_1, 62};
     std::vector<adas::PwmChannelConfig> configs = {thr_cfg};
     static adas::PwmDriver pwm_driver{configs};
     ESP_ERROR_CHECK(pwm_driver.initialize());

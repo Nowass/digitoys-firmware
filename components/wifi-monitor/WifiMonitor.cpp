@@ -1,4 +1,5 @@
 #include "WifiMonitor.hpp"
+#include "SystemMonitor.hpp"
 #include <esp_wifi.h>
 #include <esp_event.h>
 #include <esp_netif.h>
@@ -11,16 +12,9 @@
 #include <ctime>
 #include <sys/socket.h>
 #include <errno.h>
-#include <esp_netif.h>
-#include <apps/dhcpserver/dhcpserver.h> // For dhcps_lease_t
-#include <nvs_flash.h>
-#include <esp_mac.h>
-#include <Logger.hpp>
-#include <string.h>
-#include <cmath>
-#include <ctime>
-#include <sys/socket.h>
-#include <errno.h>
+#include <esp_heap_caps.h>
+#include <freertos/task.h>
+#include <cJSON.h>
 
 namespace wifi_monitor
 {
@@ -430,6 +424,39 @@ namespace wifi_monitor
         return ESP_OK;
     }
 
+    // Helper function to calculate real CPU load (adapted from SystemMonitor)
+    static float calculate_cpu_load(uint32_t &prev_idle, uint32_t &prev_total)
+    {
+        const int MAX_TASKS = 20; // digitoys::constants::monitor::MAX_MONITORED_TASKS
+        TaskStatus_t status[MAX_TASKS];
+        uint32_t total_time = 0;
+        UBaseType_t count = uxTaskGetSystemState(status, MAX_TASKS, &total_time);
+        uint32_t idle_time = 0;
+        
+        for (UBaseType_t i = 0; i < count; ++i)
+        {
+            if (strstr(status[i].pcTaskName, "IDLE") != nullptr)
+            {
+                idle_time += status[i].ulRunTimeCounter;
+            }
+        }
+        
+        float load = 0.0f;
+        if (prev_total != 0 && total_time > prev_total)
+        {
+            uint32_t diff_total = total_time - prev_total;
+            uint32_t diff_idle = idle_time - prev_idle;
+
+            if (diff_total > 0)
+            {
+                load = 100.0f * (1.0f - (float)diff_idle / (float)diff_total);
+            }
+        }
+        prev_total = total_time;
+        prev_idle = idle_time;
+        return load;
+    }
+
     esp_err_t WifiMonitor::systemGetHandler(httpd_req_t *req)
     {
         if (!instance_)
@@ -445,65 +472,60 @@ namespace wifi_monitor
         httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
         httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET");
 
-        // Get basic system information
-        uint32_t free_heap = esp_get_free_heap_size();
-        uint32_t total_heap = esp_get_minimum_free_heap_size();
+        // Get real system information
+        static uint32_t prev_idle_time = 0;
+        static uint32_t prev_total_time = 0;
+        
+        // Calculate real CPU usage using FreeRTOS statistics
+        float cpu_usage = calculate_cpu_load(prev_idle_time, prev_total_time);
+        
+        // Get real heap information
+        size_t total_heap = heap_caps_get_total_size(MALLOC_CAP_DEFAULT);
+        size_t free_heap = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
 
-        // Calculate a simple CPU usage (placeholder for now)
-        static uint32_t last_idle_time = 0;
-        static uint32_t last_total_time = 0;
-        uint32_t idle_time = 0;
-        uint32_t total_time = esp_timer_get_time() / 1000; // Convert to ms
+        // Get real task information
+        const int MAX_TASKS = 20;
+        TaskStatus_t status[MAX_TASKS];
+        uint32_t total_time = 0;
+        UBaseType_t count = uxTaskGetSystemState(status, MAX_TASKS, &total_time);
 
-        // Simple CPU calculation (this is a placeholder - real CPU calculation is more complex)
-        float cpu_usage = 0.0f;
-        if (last_total_time > 0)
-        {
-            uint32_t total_diff = total_time - last_total_time;
-            uint32_t idle_diff = idle_time - last_idle_time;
-            if (total_diff > 0)
-            {
-                cpu_usage = ((float)(total_diff - idle_diff) / total_diff) * 100.0f;
-                if (cpu_usage < 0)
-                    cpu_usage = 0;
-                if (cpu_usage > 100)
-                    cpu_usage = 100;
-            }
-        }
-        last_idle_time = idle_time;
-        last_total_time = total_time;
-
-        // For now, simulate some CPU usage for testing with more obvious changes
-        static float simulated_cpu = 15.0f;
+        // Create JSON response using cJSON (more robust than snprintf for complex data)
+        cJSON *root = cJSON_CreateObject();
+        cJSON_AddNumberToObject(root, "cpu", cpu_usage);
+        cJSON_AddNumberToObject(root, "total_heap", (double)total_heap);
+        cJSON_AddNumberToObject(root, "free_heap", (double)free_heap);
+        
+        // Add update counter for debugging
         static uint32_t counter = 0;
         counter++;
+        cJSON_AddNumberToObject(root, "counter", counter);
 
-        // Create a sine wave pattern for obvious visual changes
-        simulated_cpu = 30.0f + 25.0f * sin(counter * 0.2f); // 30-55% CPU with sine wave
+        // Add task information
+        cJSON *tasks = cJSON_CreateArray();
+        for (UBaseType_t i = 0; i < count && i < 10; ++i) // Limit to first 10 tasks for display
+        {
+            cJSON *task = cJSON_CreateObject();
+            cJSON_AddStringToObject(task, "name", status[i].pcTaskName);
+            cJSON_AddNumberToObject(task, "hwm", status[i].usStackHighWaterMark);
+            cJSON_AddItemToArray(tasks, task);
+        }
+        cJSON_AddItemToObject(root, "tasks", tasks);
 
-        // Also vary heap to show data is updating
-        uint32_t varied_free_heap = free_heap + (counter % 1000) * 100;
+        // Convert to string and send response
+        char *resp = cJSON_PrintUnformatted(root);
+        cJSON_Delete(root);
 
-        // Build JSON response
-        char json_buffer[512];
-        snprintf(json_buffer, sizeof(json_buffer),
-                 "{"
-                 "\"cpu\":%.1f,"
-                 "\"total_heap\":%lu,"
-                 "\"free_heap\":%lu,"
-                 "\"counter\":%lu,"
-                 "\"tasks\":["
-                 "{\"name\":\"main\",\"hwm\":1024},"
-                 "{\"name\":\"wifi_monitor\",\"hwm\":2048},"
-                 "{\"name\":\"IDLE\",\"hwm\":512}"
-                 "]"
-                 "}",
-                 simulated_cpu,
-                 (unsigned long)total_heap,
-                 (unsigned long)varied_free_heap,
-                 (unsigned long)counter);
-
-        return httpd_resp_send(req, json_buffer, HTTPD_RESP_USE_STRLEN);
+        if (resp)
+        {
+            esp_err_t ret = httpd_resp_send(req, resp, HTTPD_RESP_USE_STRLEN);
+            free(resp);
+            return ret;
+        }
+        else
+        {
+            httpd_resp_send_500(req);
+            return ESP_ERR_NO_MEM;
+        }
     }
 
     esp_err_t WifiMonitor::indexGetHandler(httpd_req_t *req)

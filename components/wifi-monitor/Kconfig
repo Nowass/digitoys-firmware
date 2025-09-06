@@ -1,0 +1,40 @@
+menu "WiFi Monitor Configuration"
+    config WIFI_MONITOR_AP_SSID
+        string "WiFi Access Point SSID"
+        default "DigiToys-Monitor"
+        help
+            SSID for the WiFi Access Point created by the WiFi Monitor component
+
+    config WIFI_MONITOR_AP_PASSWORD
+        string "WiFi Access Point Password"
+        default "digitoys123"
+        help
+            Password for the WiFi Access Point. Leave empty for open network.
+
+    config WIFI_MONITOR_TX_POWER_DBM
+        int "WiFi TX power (dBm)"
+        range 8 20
+        default 11
+        help
+            WiFi transmission power in dBm. Lower values reduce power consumption
+            and help prevent brownout issues. Recommended: 11 dBm for stable operation.
+
+    config WIFI_MONITOR_MAX_CONNECTIONS
+        int "Maximum AP connections"
+        range 1 10
+        default 4
+        help
+            Maximum number of simultaneous connections to the Access Point
+
+    config WIFI_MONITOR_DHCP_START_IP
+        string "DHCP start IP address"
+        default "192.168.4.100"
+        help
+            Starting IP address for DHCP lease pool
+
+    config WIFI_MONITOR_DHCP_END_IP
+        string "DHCP end IP address"
+        default "192.168.4.110"
+        help
+            Ending IP address for DHCP lease pool
+endmenu

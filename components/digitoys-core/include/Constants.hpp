@@ -198,6 +198,46 @@ namespace digitoys::constants
     }
 
     /**
+     * @brief WiFi Monitor component constants
+     */
+    namespace wifi_monitor
+    {
+        // WiFi AP configuration
+        constexpr const char* AP_SSID = "DigiToys-Monitor";
+        constexpr const char* AP_PASSWORD = "digitoys123";
+        constexpr const char* AP_IP = "192.168.4.1";
+        constexpr const char* AP_GATEWAY = "192.168.4.1";
+        constexpr const char* AP_NETMASK = "255.255.255.0";
+        constexpr uint8_t AP_MAX_CONNECTIONS = 4;
+        
+        // DHCP configuration
+        constexpr const char* DHCP_START_IP = "192.168.4.100";
+        constexpr const char* DHCP_END_IP = "192.168.4.110";
+        
+        // HTTP server configuration
+        constexpr uint16_t HTTP_SERVER_PORT = 80;
+        constexpr size_t HTTP_SERVER_STACK_SIZE = 4096;
+        constexpr int HTTP_RESPONSE_BUFFER_SIZE = 512;
+        constexpr int HTTP_TELEMETRY_TIMEOUT_MS = 100;
+        
+        // WebSocket configuration
+        constexpr uint16_t WS_BUFFER_SIZE = 512;
+        constexpr uint32_t WS_UPDATE_INTERVAL_MS = 50; // 20Hz updates
+        constexpr uint8_t MAX_WS_CLIENTS = 4;
+        
+        // Task configuration
+        constexpr size_t TASK_STACK_SIZE = 4096;
+        constexpr UBaseType_t TASK_PRIORITY = tskIDLE_PRIORITY + 1;
+        
+        // Network timeouts
+        constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 10000;
+        constexpr uint32_t WEBSOCKET_PING_INTERVAL_MS = 30000;
+        
+        // Default values
+        constexpr float DEFAULT_DISTANCE_CLAMP = 999.99f;
+    }
+
+    /**
      * @brief Centralized logging configuration
      */
     namespace logging
@@ -208,6 +248,7 @@ namespace digitoys::constants
         constexpr const char *TAG_PWM = "PWM";
         constexpr const char *TAG_CONTROL = "CONTROL";
         constexpr const char *TAG_MONITOR = "MONITOR";
+        constexpr const char *TAG_WIFI_MONITOR = "WIFI_MON";
         constexpr const char *TAG_SYSTEM = "SYSTEM";
         constexpr const char *TAG_CORE = "CORE";
         constexpr const char *TAG_CONFIG = "CONFIG";
@@ -218,6 +259,7 @@ namespace digitoys::constants
         constexpr const char *COMPONENT_PWM = "PWM";
         constexpr const char *COMPONENT_CONTROL = "Control";
         constexpr const char *COMPONENT_MONITOR = "Monitor";
+        constexpr const char *COMPONENT_WIFI_MONITOR = "WifiMonitor";
         constexpr const char *COMPONENT_SYSTEM = "System";
         constexpr const char *COMPONENT_CORE = "Core";
         constexpr const char *COMPONENT_CONFIG = "Config";

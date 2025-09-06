@@ -2,10 +2,12 @@
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <nvs_flash.h> // Add NVS support
 #include "adas_pwm_driver.hpp"
 #include "LiDARConfig.hpp"
 #include "LiDAR.hpp"
 #include "Monitor.hpp"
+#include "WifiMonitor.hpp" // Add our new component
 #include "SystemMonitor.hpp"
 #include "ControlTask.hpp"
 
@@ -14,6 +16,27 @@ using namespace lidar;
 extern "C" void app_main()
 {
     ESP_LOGI(TAG, "Starting DigiToys firmware with unified configuration system");
+
+    // --- Initialize NVS (Required for WiFi) ---
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
+    {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(ret);
+    ESP_LOGI(TAG, "NVS initialized successfully");
+
+    // --- WiFi Monitor (TEST) ---
+    static wifi_monitor::WifiMonitor wifi_mon;
+    ESP_ERROR_CHECK(wifi_mon.initialize());
+    ESP_ERROR_CHECK(wifi_mon.start());
+    ESP_LOGI(TAG, "WiFi Monitor (TEST) initialized and started");
+
+    while (true)
+    {
+        vTaskDelay(pdMS_TO_TICKS(digitoys::constants::timing::CONTROL_LOOP_DELAY_MS));
+    }
 
     // --- LiDAR hardware setup using configuration factory ---
     auto lidar_config = lidar::LiDARConfig::createProductionConfig();

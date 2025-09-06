@@ -367,7 +367,7 @@ namespace wifi_monitor
             .user_ctx = nullptr};
         httpd_register_uri_handler(server_, &dashboard_uri);
 
-        // System data route (temporary HTTP endpoint)
+        // System data route for HTTP polling fallback
         httpd_uri_t system_uri = {
             .uri = "/system",
             .method = HTTP_GET,
@@ -375,7 +375,17 @@ namespace wifi_monitor
             .user_ctx = nullptr};
         httpd_register_uri_handler(server_, &system_uri);
 
-        DIGITOYS_LOGI("WifiMonitor", "HTTP server started on port %d", config.server_port);
+        // WebSocket route for real-time streaming
+        httpd_uri_t ws_uri = {
+            .uri = "/ws",
+            .method = HTTP_GET,
+            .handler = websocketHandler,
+            .user_ctx = nullptr,
+            .is_websocket = true,
+            .handle_ws_control_frames = true};
+        httpd_register_uri_handler(server_, &ws_uri);
+
+        DIGITOYS_LOGI("WifiMonitor", "HTTP server started on port %d with WebSocket support", config.server_port);
         return ESP_OK;
     }
 
@@ -675,28 +685,148 @@ namespace wifi_monitor
             line.setAttribute('points', points.trim());
         }
 
-        async function fetchStats() {
-            try {
-                updateCounter++;
-                document.getElementById('updateCount').textContent = updateCounter;
-                document.getElementById('status').textContent = 'Connected';
+        // WebSocket-first real-time monitoring with HTTP fallback
+        // updateCounter already declared above
+        let wsConnected = false;
+        let ws = null;
+        let reconnectInterval = null;
+        let httpFallbackInterval = null;
+
+        function connectWebSocket() {
+            const wsUrl = `ws://${window.location.host}/ws`;
+            console.log('Connecting to WebSocket:', wsUrl);
+            
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = function(event) {
+                console.log('WebSocket connected');
+                wsConnected = true;
+                document.getElementById('status').textContent = 'Connected (WebSocket)';
                 document.getElementById('status').style.color = 'var(--accent-green)';
                 
-                console.log('Fetching system stats...');
-                const resp = await fetch('/system');
-                console.log('Response status:', resp.status);
-                
-                if (!resp.ok) {
-                    throw new Error(`HTTP error! status: ${resp.status}`);
+                // Clear reconnect timer
+                if (reconnectInterval) {
+                    clearInterval(reconnectInterval);
+                    reconnectInterval = null;
                 }
                 
-                const data = await resp.json();
-                console.log('Received data:', data);
+                // Stop HTTP fallback
+                if (httpFallbackInterval) {
+                    clearInterval(httpFallbackInterval);
+                    httpFallbackInterval = null;
+                }
                 
-                // Update simple chart
+                // Request initial data
+                ws.send('get_data');
+            };
+            
+            ws.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    console.log('WebSocket data:', data);
+                    
+                    updateCounter++;
+                    document.getElementById('updateCount').textContent = updateCounter;
+                    
+                    // Update chart
+                    updateSimpleChart(data.cpu);
+                    
+                    // Update CPU display
+                    const cpuLabel = document.getElementById('cpuLabel');
+                    const cpuBar = document.getElementById('cpuBar');
+                    cpuLabel.textContent = `CPU ${data.cpu.toFixed(1)}%`;
+
+                    if (data.cpu >= 70) {
+                        cpuBar.style.backgroundColor = 'var(--accent-red)';
+                    } else if (data.cpu >= 50) {
+                        cpuBar.style.backgroundColor = 'var(--accent-orange)';
+                    } else {
+                        cpuBar.style.backgroundColor = 'var(--accent-green)';
+                    }
+
+                    // Update metrics
+                    const list = document.getElementById('metrics');
+                    list.innerHTML = '';
+                    
+                    const counterLi = document.createElement('li');
+                    counterLi.textContent = `WS Counter: ${data.counter || 'N/A'}`;
+                    list.appendChild(counterLi);
+                    
+                    const heapLi = document.createElement('li');
+                    heapLi.textContent = `Free Heap: ${data.free_heap} bytes`;
+                    list.appendChild(heapLi);
+                    
+                    const typeLi = document.createElement('li');
+                    typeLi.textContent = `Transport: ${data.type || 'WebSocket'}`;
+                    list.appendChild(typeLi);
+                    
+                    if (data.tasks) {
+                        data.tasks.forEach(task => {
+                            const li = document.createElement('li');
+                            li.textContent = `${task.name}: Stack HWM ${task.hwm}`;
+                            list.appendChild(li);
+                        });
+                    }
+                    
+                    // Request next data after 1 second
+                    setTimeout(() => {
+                        if (ws && ws.readyState === WebSocket.OPEN) {
+                            ws.send('get_data');
+                        }
+                    }, 1000);
+                    
+                } catch (e) {
+                    console.error('Error parsing WebSocket data:', e);
+                }
+            };
+            
+            ws.onclose = function(event) {
+                console.log('WebSocket closed:', event.code, event.reason);
+                wsConnected = false;
+                document.getElementById('status').textContent = 'Disconnected - Reconnecting...';
+                document.getElementById('status').style.color = 'var(--accent-orange)';
+                
+                // Start reconnection timer
+                if (!reconnectInterval) {
+                    reconnectInterval = setInterval(() => {
+                        console.log('Attempting WebSocket reconnection...');
+                        connectWebSocket();
+                    }, 3000);
+                }
+                
+                // Start HTTP fallback after 5 seconds
+                setTimeout(() => {
+                    if (!wsConnected && !httpFallbackInterval) {
+                        console.log('Starting HTTP fallback...');
+                        startHttpFallback();
+                    }
+                }, 5000);
+            };
+            
+            ws.onerror = function(error) {
+                console.error('WebSocket error:', error);
+                wsConnected = false;
+                document.getElementById('status').textContent = 'WebSocket Error';
+                document.getElementById('status').style.color = 'var(--accent-red)';
+            };
+        }
+
+        // HTTP fallback function
+        async function fetchStatsHTTP() {
+            try {
+                const resp = await fetch('/system', { cache: 'no-cache' });
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                
+                const data = await resp.json();
+                
+                updateCounter++;
+                document.getElementById('updateCount').textContent = updateCounter;
+                document.getElementById('status').textContent = 'Connected (HTTP fallback)';
+                document.getElementById('status').style.color = 'var(--accent-orange)';
+                
+                // Update display (same logic as WebSocket)
                 updateSimpleChart(data.cpu);
                 
-                // Update CPU display
                 const cpuLabel = document.getElementById('cpuLabel');
                 const cpuBar = document.getElementById('cpuBar');
                 cpuLabel.textContent = `CPU ${data.cpu.toFixed(1)}%`;
@@ -709,18 +839,20 @@ namespace wifi_monitor
                     cpuBar.style.backgroundColor = 'var(--accent-green)';
                 }
 
-                // Update metrics
                 const list = document.getElementById('metrics');
                 list.innerHTML = '';
                 
-                // Add counter display for debugging
                 const counterLi = document.createElement('li');
-                counterLi.textContent = `Server Counter: ${data.counter || 'N/A'}`;
+                counterLi.textContent = `HTTP Counter: ${data.counter || 'N/A'}`;
                 list.appendChild(counterLi);
                 
                 const heapLi = document.createElement('li');
                 heapLi.textContent = `Free Heap: ${data.free_heap} bytes`;
                 list.appendChild(heapLi);
+                
+                const typeLi = document.createElement('li');
+                typeLi.textContent = `Transport: HTTP fallback`;
+                list.appendChild(typeLi);
                 
                 if (data.tasks) {
                     data.tasks.forEach(task => {
@@ -729,21 +861,23 @@ namespace wifi_monitor
                         list.appendChild(li);
                     });
                 }
-            } catch (e) {
-                console.error('Error fetching stats:', e);
-                document.getElementById('status').textContent = 'Error: ' + e.message;
-                document.getElementById('status').style.color = 'var(--accent-red)';
                 
-                const list = document.getElementById('metrics');
-                list.innerHTML = '<li style="border-left-color: var(--accent-red);">⚠ Failed to fetch stats: ' + e.message + '</li>';
+            } catch (e) {
+                console.error('HTTP fallback error:', e);
+                document.getElementById('status').textContent = 'All connections failed';
+                document.getElementById('status').style.color = 'var(--accent-red)';
             }
         }
 
-        // Start immediately and then every second
-        fetchStats();
-        setInterval(fetchStats, 1000);
+        function startHttpFallback() {
+            httpFallbackInterval = setInterval(fetchStatsHTTP, 2000); // Slower HTTP polling
+            fetchStatsHTTP(); // Initial call
+        }
+
+        // Start with WebSocket
+        connectWebSocket();
         
-        console.log('Dashboard initialized - no external dependencies');
+        console.log('Dashboard initialized with WebSocket + HTTP fallback');
     </script>
 </body>
 </html>)";
@@ -753,14 +887,142 @@ namespace wifi_monitor
 
     esp_err_t WifiMonitor::websocketHandler(httpd_req_t *req)
     {
-        // TODO: Implement WebSocket handler
-        return ESP_OK;
+        if (!instance_)
+        {
+            DIGITOYS_LOGE("WifiMonitor", "WebSocket handler called but no instance available");
+            return ESP_ERR_INVALID_STATE;
+        }
+
+        if (req->method == HTTP_GET)
+        {
+            DIGITOYS_LOGI("WifiMonitor", "WebSocket handshake from client");
+            return ESP_OK;
+        }
+
+        // Handle WebSocket frame
+        httpd_ws_frame_t ws_pkt;
+        uint8_t *buf = nullptr;
+        memset(&ws_pkt, 0, sizeof(httpd_ws_frame_t));
+
+        // First call to get frame length
+        esp_err_t ret = httpd_ws_recv_frame(req, &ws_pkt, 0);
+        if (ret != ESP_OK)
+        {
+            DIGITOYS_LOGE("WifiMonitor", "httpd_ws_recv_frame failed to get frame len with %d", ret);
+            return ret;
+        }
+
+        if (ws_pkt.len)
+        {
+            // Allocate buffer for the payload
+            buf = (uint8_t *)calloc(1, ws_pkt.len + 1);
+            if (buf == nullptr)
+            {
+                DIGITOYS_LOGE("WifiMonitor", "Failed to calloc memory for buf");
+                return ESP_ERR_NO_MEM;
+            }
+            ws_pkt.payload = buf;
+
+            // Second call to get the actual frame payload
+            ret = httpd_ws_recv_frame(req, &ws_pkt, ws_pkt.len);
+            if (ret != ESP_OK)
+            {
+                DIGITOYS_LOGE("WifiMonitor", "httpd_ws_recv_frame failed with %d", ret);
+                free(buf);
+                return ret;
+            }
+        }
+
+        // Handle different frame types
+        if (ws_pkt.type == HTTPD_WS_TYPE_TEXT)
+        {
+            DIGITOYS_LOGI("WifiMonitor", "Received WebSocket text: %.*s", ws_pkt.len, (char *)ws_pkt.payload);
+            
+            // Send system data as JSON response
+            cJSON *root = cJSON_CreateObject();
+            
+            // Get real system data (reuse logic from systemGetHandler)
+            static uint32_t prev_idle_time = 0;
+            static uint32_t prev_total_time = 0;
+            static uint32_t ws_counter = 0;
+            ws_counter++;
+            
+            float cpu_usage = calculate_cpu_load(prev_idle_time, prev_total_time);
+            size_t total_heap = heap_caps_get_total_size(MALLOC_CAP_DEFAULT);
+            size_t free_heap = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
+            
+            cJSON_AddNumberToObject(root, "cpu", cpu_usage);
+            cJSON_AddNumberToObject(root, "total_heap", (double)total_heap);
+            cJSON_AddNumberToObject(root, "free_heap", (double)free_heap);
+            cJSON_AddNumberToObject(root, "counter", ws_counter);
+            cJSON_AddStringToObject(root, "type", "websocket");
+            
+            // Add some task info
+            const int MAX_TASKS = 5; // Limit for WebSocket to reduce payload
+            TaskStatus_t status[MAX_TASKS];
+            uint32_t total_time = 0;
+            UBaseType_t count = uxTaskGetSystemState(status, MAX_TASKS, &total_time);
+            
+            cJSON *tasks = cJSON_CreateArray();
+            for (UBaseType_t i = 0; i < count && i < MAX_TASKS; ++i)
+            {
+                cJSON *task = cJSON_CreateObject();
+                cJSON_AddStringToObject(task, "name", status[i].pcTaskName);
+                cJSON_AddNumberToObject(task, "hwm", status[i].usStackHighWaterMark);
+                cJSON_AddItemToArray(tasks, task);
+            }
+            cJSON_AddItemToObject(root, "tasks", tasks);
+            
+            char *json_string = cJSON_PrintUnformatted(root);
+            cJSON_Delete(root);
+            
+            if (json_string)
+            {
+                httpd_ws_frame_t response = {
+                    .final = true,
+                    .fragmented = false,
+                    .type = HTTPD_WS_TYPE_TEXT,
+                    .payload = (uint8_t *)json_string,
+                    .len = strlen(json_string)
+                };
+                
+                ret = httpd_ws_send_frame(req, &response);
+                free(json_string);
+                
+                if (ret != ESP_OK)
+                {
+                    DIGITOYS_LOGE("WifiMonitor", "httpd_ws_send_frame failed with %d", ret);
+                }
+            }
+        }
+        else if (ws_pkt.type == HTTPD_WS_TYPE_PING)
+        {
+            // Respond to ping with pong
+            httpd_ws_frame_t pong = {
+                .final = true,
+                .fragmented = false,
+                .type = HTTPD_WS_TYPE_PONG,
+                .payload = nullptr,
+                .len = 0
+            };
+            ret = httpd_ws_send_frame(req, &pong);
+        }
+        else if (ws_pkt.type == HTTPD_WS_TYPE_CLOSE)
+        {
+            DIGITOYS_LOGI("WifiMonitor", "WebSocket connection closed by client");
+        }
+
+        if (buf)
+        {
+            free(buf);
+        }
+        return ret;
     }
 
-    // WebSocket task function (placeholder)
+    // WebSocket task function (placeholder for future implementation)
     void WifiMonitor::webSocketTaskFunction(void *param)
     {
-        // TODO: Implement WebSocket broadcast loop
+        // TODO: Implement periodic WebSocket broadcast to all connected clients
     }
 
 } // namespace wifi_monitor

@@ -521,6 +521,19 @@ namespace wifi_monitor
         }
         cJSON_AddItemToObject(root, "tasks", tasks);
 
+        // Add telemetry data if available
+        Telemetry telemetry;
+        if (instance_->getTelemetry(telemetry) == ESP_OK)
+        {
+            cJSON *telemetry_obj = cJSON_CreateObject();
+            cJSON_AddBoolToObject(telemetry_obj, "obstacle", telemetry.obstacle);
+            cJSON_AddBoolToObject(telemetry_obj, "warning", telemetry.warning);
+            cJSON_AddNumberToObject(telemetry_obj, "distance", (double)telemetry.distance);
+            cJSON_AddNumberToObject(telemetry_obj, "speed_est", (double)telemetry.speed_est);
+            cJSON_AddNumberToObject(telemetry_obj, "timestamp", (double)telemetry.timestamp);
+            cJSON_AddItemToObject(root, "telemetry", telemetry_obj);
+        }
+
         // Convert to string and send response
         char *resp = cJSON_PrintUnformatted(root);
         cJSON_Delete(root);
@@ -659,6 +672,12 @@ namespace wifi_monitor
             <div id="cpuLabel">CPU 0%</div>
         </div>
     </div>
+    
+    <div class="container">
+        <h2 style="color: var(--accent-green); margin-bottom: 1rem;">Vehicle Telemetry</h2>
+        <div id="telemetryInfo">Loading telemetry data...</div>
+    </div>
+    
     <ul class="usage-list" id="metrics"></ul>
 
     <script>
@@ -683,6 +702,29 @@ namespace wifi_monitor
             });
             
             line.setAttribute('points', points.trim());
+        }
+
+        function updateTelemetryDisplay(telemetryData) {
+            const telemetryInfo = document.getElementById('telemetryInfo');
+            
+            if (!telemetryData) {
+                telemetryInfo.innerHTML = '<div style="color: var(--accent-orange);">No telemetry data available</div>';
+                return;
+            }
+            
+            let html = '';
+            html += `<div style="margin: 0.5rem 0;">Distance: <strong>${telemetryData.distance.toFixed(2)} m</strong></div>`;
+            html += `<div style="margin: 0.5rem 0;">Speed: <strong>${telemetryData.speed_est.toFixed(1)} km/h</strong></div>`;
+            
+            const obstacleColor = telemetryData.obstacle ? 'var(--accent-red)' : 'var(--accent-green)';
+            const obstacleText = telemetryData.obstacle ? 'DETECTED' : 'Clear';
+            html += `<div style="margin: 0.5rem 0;">Obstacle: <strong style="color: ${obstacleColor};">${obstacleText}</strong></div>`;
+            
+            const warningColor = telemetryData.warning ? 'var(--accent-orange)' : 'var(--accent-green)';
+            const warningText = telemetryData.warning ? 'ACTIVE' : 'Clear';
+            html += `<div style="margin: 0.5rem 0;">Warning: <strong style="color: ${warningColor};">${warningText}</strong></div>`;
+            
+            telemetryInfo.innerHTML = html;
         }
 
         // WebSocket-first real-time monitoring with HTTP fallback
@@ -755,6 +797,9 @@ namespace wifi_monitor
                     const heapLi = document.createElement('li');
                     heapLi.textContent = `Free Heap: ${data.free_heap} bytes`;
                     list.appendChild(heapLi);
+                    
+                    // Update telemetry display
+                    updateTelemetryDisplay(data.telemetry);
                     
                     const typeLi = document.createElement('li');
                     typeLi.textContent = `Transport: ${data.type || 'WebSocket'}`;
@@ -849,6 +894,9 @@ namespace wifi_monitor
                 const heapLi = document.createElement('li');
                 heapLi.textContent = `Free Heap: ${data.free_heap} bytes`;
                 list.appendChild(heapLi);
+                
+                // Update telemetry display
+                updateTelemetryDisplay(data.telemetry);
                 
                 const typeLi = document.createElement('li');
                 typeLi.textContent = `Transport: HTTP fallback`;

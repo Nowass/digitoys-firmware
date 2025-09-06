@@ -17,21 +17,21 @@ namespace wifi_monitor
      */
     struct Telemetry
     {
-        bool obstacle = false;      ///< Obstacle detected flag
-        bool warning = false;       ///< Warning condition flag
-        float distance = 0.0f;      ///< Distance to obstacle (meters)
-        float speed_est = 0.0f;     ///< Estimated speed
-        uint32_t timestamp = 0;     ///< Timestamp of the data
+        bool obstacle = false;  ///< Obstacle detected flag
+        bool warning = false;   ///< Warning condition flag
+        float distance = 0.0f;  ///< Distance to obstacle (meters)
+        float speed_est = 0.0f; ///< Estimated speed
+        uint32_t timestamp = 0; ///< Timestamp of the data
     };
 
     /**
      * @brief WiFi Monitor component providing AP mode with real-time telemetry
-     * 
+     *
      * This component creates a WiFi Access Point with built-in DHCP server
      * and provides both HTTP REST endpoints and WebSocket streaming for
      * real-time telemetry data. It's designed to be a replacement for the
      * original monitor component with improved performance and reliability.
-     * 
+     *
      * Features:
      * - WiFi AP mode (192.168.4.1) with DHCP (192.168.4.100-110)
      * - HTTP REST API (/telemetry, /system, /)
@@ -46,7 +46,7 @@ namespace wifi_monitor
          * @brief Constructor
          */
         WifiMonitor() : ComponentBase("WifiMonitor") {}
-        
+
         /**
          * @brief Destructor
          */
@@ -92,7 +92,7 @@ namespace wifi_monitor
         // WebSocket management
         esp_err_t startWebSocketTask();
         esp_err_t stopWebSocketTask();
-        static void webSocketTaskFunction(void* param);
+        static void webSocketTaskFunction(void *param);
         void webSocketBroadcastLoop();
         esp_err_t broadcastTelemetry();
         void cleanupDisconnectedClients();
@@ -109,25 +109,25 @@ namespace wifi_monitor
 
     private:
         // Network interfaces
-        esp_netif_t* ap_netif_ = nullptr;
-        
+        esp_netif_t *ap_netif_ = nullptr;
+
         // HTTP server
         httpd_handle_t server_ = nullptr;
-        
+
         // WebSocket clients management
         std::vector<int> websocket_clients_;
         SemaphoreHandle_t ws_clients_mutex_ = nullptr;
-        
+
         // Telemetry data protection
         Telemetry telemetry_data_{};
         SemaphoreHandle_t telemetry_mutex_ = nullptr;
-        
+
         // WebSocket broadcast task
         TaskHandle_t ws_task_handle_ = nullptr;
         volatile bool ws_task_running_ = false;
-        
+
         // Static instance for HTTP handlers
-        static WifiMonitor* instance_;
+        static WifiMonitor *instance_;
     };
 
 } // namespace wifi_monitor

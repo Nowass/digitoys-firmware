@@ -2,7 +2,7 @@
 #include <esp_wifi.h>
 #include <esp_event.h>
 #include <esp_netif.h>
-#include <apps/dhcpserver/dhcpserver.h>  // For dhcps_lease_t
+#include <apps/dhcpserver/dhcpserver.h> // For dhcps_lease_t
 #include <nvs_flash.h>
 #include <esp_mac.h>
 #include <Logger.hpp>
@@ -15,14 +15,28 @@
 namespace wifi_monitor
 {
     // Static instance for HTTP handlers
-    WifiMonitor* WifiMonitor::instance_ = nullptr;
+    WifiMonitor *WifiMonitor::instance_ = nullptr;
 
     esp_err_t WifiMonitor::initialize()
     {
         // Register with centralized logging system
         DIGITOYS_REGISTER_COMPONENT("WifiMonitor", "WIFI_MON");
-        
+
         DIGITOYS_LOGI("WifiMonitor", "Initializing WiFi Monitor component");
+
+        // Initialize NVS (Required for WiFi)
+        esp_err_t ret = nvs_flash_init();
+        if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
+        {
+            ESP_ERROR_CHECK(nvs_flash_erase());
+            ret = nvs_flash_init();
+        }
+        if (ret != ESP_OK)
+        {
+            DIGITOYS_LOGE("WifiMonitor", "Failed to initialize NVS: %s", esp_err_to_name(ret));
+            return ret;
+        }
+        DIGITOYS_LOGI("WifiMonitor", "NVS initialized successfully");
 
         // Create mutexes for thread safety
         telemetry_mutex_ = xSemaphoreCreateMutex();
@@ -51,7 +65,7 @@ namespace wifi_monitor
 
     esp_err_t WifiMonitor::start()
     {
-        if (getState() != digitoys::core::ComponentState::INITIALIZED && 
+        if (getState() != digitoys::core::ComponentState::INITIALIZED &&
             getState() != digitoys::core::ComponentState::STOPPED)
         {
             DIGITOYS_LOGW("WifiMonitor", "Component not in correct state to start");
@@ -93,7 +107,7 @@ namespace wifi_monitor
 
         setState(digitoys::core::ComponentState::RUNNING);
         DIGITOYS_LOGI("WifiMonitor", "WiFi Monitor component started successfully");
-        DIGITOYS_LOGI("WifiMonitor", "Access Point: SSID='%s', IP=%s", 
+        DIGITOYS_LOGI("WifiMonitor", "Access Point: SSID='%s', IP=%s",
                       digitoys::constants::wifi_monitor::AP_SSID,
                       digitoys::constants::wifi_monitor::AP_IP);
         return ESP_OK;
@@ -170,15 +184,15 @@ namespace wifi_monitor
 
     void WifiMonitor::updateTelemetry(bool obstacle, float distance, float speed_est, bool warning)
     {
-        if (telemetry_mutex_ && xSemaphoreTake(telemetry_mutex_, 
-                                                pdMS_TO_TICKS(digitoys::constants::wifi_monitor::HTTP_TELEMETRY_TIMEOUT_MS)))
+        if (telemetry_mutex_ && xSemaphoreTake(telemetry_mutex_,
+                                               pdMS_TO_TICKS(digitoys::constants::wifi_monitor::HTTP_TELEMETRY_TIMEOUT_MS)))
         {
             telemetry_data_.obstacle = obstacle;
             telemetry_data_.distance = distance;
             telemetry_data_.speed_est = speed_est;
             telemetry_data_.warning = warning;
             telemetry_data_.timestamp = esp_timer_get_time() / 1000; // Convert to milliseconds
-            
+
             xSemaphoreGive(telemetry_mutex_);
         }
         else
@@ -189,14 +203,14 @@ namespace wifi_monitor
 
     esp_err_t WifiMonitor::getTelemetry(Telemetry &data) const
     {
-        if (telemetry_mutex_ && xSemaphoreTake(telemetry_mutex_, 
-                                                pdMS_TO_TICKS(digitoys::constants::wifi_monitor::HTTP_TELEMETRY_TIMEOUT_MS)))
+        if (telemetry_mutex_ && xSemaphoreTake(telemetry_mutex_,
+                                               pdMS_TO_TICKS(digitoys::constants::wifi_monitor::HTTP_TELEMETRY_TIMEOUT_MS)))
         {
             data = telemetry_data_;
             xSemaphoreGive(telemetry_mutex_);
             return ESP_OK;
         }
-        
+
         DIGITOYS_LOGW("WifiMonitor", "Failed to acquire telemetry mutex for read");
         return ESP_ERR_TIMEOUT;
     }
@@ -219,19 +233,19 @@ namespace wifi_monitor
 
         // Initialize WiFi
         wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-        
+
         // Reduce some buffer sizes to save power/memory
-        cfg.static_rx_buf_num = 8;      // Reduce from default 10
-        cfg.dynamic_rx_buf_num = 16;    // Reduce from default 32
-        cfg.dynamic_tx_buf_num = 16;    // Reduce from default 32
-        cfg.rx_mgmt_buf_num = 4;        // Reduce from default 5
-        
+        cfg.static_rx_buf_num = 8;   // Reduce from default 10
+        cfg.dynamic_rx_buf_num = 16; // Reduce from default 32
+        cfg.dynamic_tx_buf_num = 16; // Reduce from default 32
+        cfg.rx_mgmt_buf_num = 4;     // Reduce from default 5
+
         ESP_ERROR_CHECK(esp_wifi_init(&cfg));
 
         // Configure AP settings
         wifi_config_t ap_config = {};
-        strcpy((char*)ap_config.ap.ssid, CONFIG_WIFI_MONITOR_AP_SSID);
-        strcpy((char*)ap_config.ap.password, CONFIG_WIFI_MONITOR_AP_PASSWORD);
+        strcpy((char *)ap_config.ap.ssid, CONFIG_WIFI_MONITOR_AP_SSID);
+        strcpy((char *)ap_config.ap.password, CONFIG_WIFI_MONITOR_AP_PASSWORD);
         ap_config.ap.ssid_len = strlen(CONFIG_WIFI_MONITOR_AP_SSID);
         ap_config.ap.max_connection = CONFIG_WIFI_MONITOR_MAX_CONNECTIONS;
         ap_config.ap.authmode = WIFI_AUTH_WPA2_PSK;
@@ -261,7 +275,7 @@ namespace wifi_monitor
         ESP_ERROR_CHECK(esp_wifi_set_max_tx_power(CONFIG_WIFI_MONITOR_TX_POWER_DBM * 4)); // Convert dBm to quarter-dBm units
         DIGITOYS_LOGI("WifiMonitor", "WiFi power set to %d dBm to prevent brownout", CONFIG_WIFI_MONITOR_TX_POWER_DBM);
 
-        DIGITOYS_LOGI("WifiMonitor", "WiFi AP started - SSID: %s, IP: %s", 
+        DIGITOYS_LOGI("WifiMonitor", "WiFi AP started - SSID: %s, IP: %s",
                       CONFIG_WIFI_MONITOR_AP_SSID,
                       digitoys::constants::wifi_monitor::AP_IP);
 
@@ -287,15 +301,15 @@ namespace wifi_monitor
         dhcp_lease.enable = true;
         dhcp_lease.start_ip.addr = esp_ip4addr_aton(CONFIG_WIFI_MONITOR_DHCP_START_IP);
         dhcp_lease.end_ip.addr = esp_ip4addr_aton(CONFIG_WIFI_MONITOR_DHCP_END_IP);
-        
-        ESP_ERROR_CHECK(esp_netif_dhcps_option(ap_netif_, ESP_NETIF_OP_SET, 
-                                              ESP_NETIF_REQUESTED_IP_ADDRESS, 
-                                              &dhcp_lease, sizeof(dhcp_lease)));
+
+        ESP_ERROR_CHECK(esp_netif_dhcps_option(ap_netif_, ESP_NETIF_OP_SET,
+                                               ESP_NETIF_REQUESTED_IP_ADDRESS,
+                                               &dhcp_lease, sizeof(dhcp_lease)));
 
         // Start DHCP server
         ESP_ERROR_CHECK(esp_netif_dhcps_start(ap_netif_));
 
-        DIGITOYS_LOGI("WifiMonitor", "DHCP configured - Range: %s to %s", 
+        DIGITOYS_LOGI("WifiMonitor", "DHCP configured - Range: %s to %s",
                       CONFIG_WIFI_MONITOR_DHCP_START_IP,
                       CONFIG_WIFI_MONITOR_DHCP_END_IP);
 
@@ -323,12 +337,12 @@ namespace wifi_monitor
     esp_err_t WifiMonitor::startHttpServer()
     {
         DIGITOYS_LOGI("WifiMonitor", "Starting HTTP server (basic implementation)");
-        
+
         httpd_config_t config = HTTPD_DEFAULT_CONFIG();
         config.task_priority = digitoys::constants::wifi_monitor::TASK_PRIORITY;
         config.stack_size = digitoys::constants::wifi_monitor::HTTP_SERVER_STACK_SIZE;
         config.server_port = digitoys::constants::wifi_monitor::HTTP_SERVER_PORT;
-        config.max_open_sockets = 7;  // Allow for multiple connections
+        config.max_open_sockets = 7; // Allow for multiple connections
         config.lru_purge_enable = true;
 
         esp_err_t ret = httpd_start(&server_, &config);
@@ -345,38 +359,38 @@ namespace wifi_monitor
     esp_err_t WifiMonitor::stopHttpServer()
     {
         DIGITOYS_LOGI("WifiMonitor", "Stopping HTTP server");
-        
+
         if (server_)
         {
             esp_err_t ret = httpd_stop(server_);
             server_ = nullptr;
-            
+
             if (ret != ESP_OK)
             {
                 DIGITOYS_LOGE("WifiMonitor", "Failed to stop HTTP server: %s", esp_err_to_name(ret));
                 return ret;
             }
         }
-        
+
         return ESP_OK;
     }
 
     esp_err_t WifiMonitor::startWebSocketTask()
     {
         DIGITOYS_LOGI("WifiMonitor", "WebSocket task (placeholder - skipping for now)");
-        
+
         // For now, just mark as successful - we'll implement WebSocket later
-        ws_task_running_ = false;  // Not actually running yet
-        
+        ws_task_running_ = false; // Not actually running yet
+
         return ESP_OK;
     }
 
     esp_err_t WifiMonitor::stopWebSocketTask()
     {
         DIGITOYS_LOGI("WifiMonitor", "WebSocket task stop (placeholder)");
-        
+
         ws_task_running_ = false;
-        
+
         return ESP_OK;
     }
 
@@ -406,7 +420,7 @@ namespace wifi_monitor
     }
 
     // WebSocket task function (placeholder)
-    void WifiMonitor::webSocketTaskFunction(void* param)
+    void WifiMonitor::webSocketTaskFunction(void *param)
     {
         // TODO: Implement WebSocket broadcast loop
     }

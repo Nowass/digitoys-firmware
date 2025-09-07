@@ -237,51 +237,57 @@ namespace digitoys::datalogger
                                                     const ControlDataSnapshot &snapshot,
                                                     uint64_t timestamp)
     {
-        // RC Input data
+        // Core control data (reduced from 16 to 8 entries)
         entries.emplace_back("rc_input", snapshot.current_input, timestamp);
-        entries.emplace_back("cached_duty", snapshot.cached_duty, timestamp);
-        entries.emplace_back("direct_duty", snapshot.direct_duty, timestamp);
-        entries.emplace_back("throttle_pressed", snapshot.throttle_pressed, timestamp);
-        entries.emplace_back("driving_forward", snapshot.driving_forward, timestamp);
-        entries.emplace_back("wants_reverse", snapshot.wants_reverse, timestamp);
-
-        // LiDAR data
         entries.emplace_back("obstacle_distance", snapshot.distance, timestamp);
-        entries.emplace_back("obstacle_detected", snapshot.obstacle_detected, timestamp);
-        entries.emplace_back("warning_active", snapshot.warning_active, timestamp);
-
-        // Dynamic calculations
         entries.emplace_back("brake_distance", snapshot.brake_distance, timestamp);
-        entries.emplace_back("warning_distance", snapshot.warning_distance, timestamp);
-
-        // Control states
         entries.emplace_back("is_obstacle_state", snapshot.is_obstacle_state, timestamp);
         entries.emplace_back("is_warning_state", snapshot.is_warning_state, timestamp);
-
-        // Statistics
-        entries.emplace_back("total_samples", total_samples_, timestamp);
-        entries.emplace_back("brake_events", brake_events_, timestamp);
-        entries.emplace_back("warning_events", warning_events_, timestamp);
+        entries.emplace_back("driving_forward", snapshot.driving_forward, timestamp);
+        
+        // Event counters (only when they change)
+        static uint32_t last_brake_events = 0;
+        static uint32_t last_warning_events = 0;
+        
+        if (brake_events_ != last_brake_events) {
+            entries.emplace_back("brake_events", brake_events_, timestamp);
+            last_brake_events = brake_events_;
+        }
+        
+        if (warning_events_ != last_warning_events) {
+            entries.emplace_back("warning_events", warning_events_, timestamp);
+            last_warning_events = warning_events_;
+        }
     }
 
     void ControlTaskDataSource::addPhysicsData(std::vector<DataEntry> &entries,
                                                const ControlDataSnapshot &snapshot,
                                                uint64_t timestamp)
     {
-        // Physics analysis data
-        entries.emplace_back("speed_delta", snapshot.speed_delta, timestamp);
-        entries.emplace_back("distance_delta", snapshot.distance_delta, timestamp);
-        entries.emplace_back("deceleration", snapshot.deceleration, timestamp);
-        entries.emplace_back("time_to_impact", snapshot.time_to_impact, timestamp);
-
-        // Physics statistics
-        entries.emplace_back("physics_samples", physics_samples_, timestamp);
-
-        // Safety margins
+        // Only log physics data when there's significant activity (reduced from 7 to 3-4 entries)
+        
+        // Always log safety margin (critical for safety analysis)
         float safety_margin = snapshot.distance - snapshot.brake_distance;
-        float warning_margin = snapshot.distance - snapshot.warning_distance;
         entries.emplace_back("safety_margin", safety_margin, timestamp);
-        entries.emplace_back("warning_margin", warning_margin, timestamp);
+        
+        // Only log deltas when there's meaningful change
+        if (abs(snapshot.speed_delta) > 0.01f) {
+            entries.emplace_back("speed_delta", snapshot.speed_delta, timestamp);
+        }
+        
+        if (abs(snapshot.distance_delta) > 1.0f) { // Only log if distance changes > 1cm
+            entries.emplace_back("distance_delta", snapshot.distance_delta, timestamp);
+        }
+        
+        // Only log deceleration during significant braking events
+        if (abs(snapshot.deceleration) > 0.5f) { // Only log significant deceleration
+            entries.emplace_back("deceleration", snapshot.deceleration, timestamp);
+        }
+        
+        // Only log time to impact when approaching obstacles
+        if (snapshot.time_to_impact > 0.0f && snapshot.time_to_impact < 10.0f) {
+            entries.emplace_back("time_to_impact", snapshot.time_to_impact, timestamp);
+        }
     }
 
 } // namespace digitoys::datalogger

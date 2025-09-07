@@ -9,6 +9,7 @@
 #include "WifiMonitor.hpp" // Add our new component
 #include "SystemMonitor.hpp"
 #include "ControlTask.hpp"
+#include "DataLoggerService.hpp" // Add DataLogger integration
 
 static const char *TAG = "APP_MAIN";
 using namespace lidar;
@@ -44,6 +45,18 @@ extern "C" void app_main()
     ESP_ERROR_CHECK(control_task.start());
     ESP_LOGI(TAG, "Control task initialized and started with WiFi Monitor");
 
-    // Keep app_main idle
+    // --- DataLogger Service for Hardware Trials ---
+    static digitoys::datalogger::DataLoggerService data_logger(&control_task, true);
+    ESP_ERROR_CHECK(data_logger.initialize());
+    ESP_ERROR_CHECK(data_logger.start());
+    ESP_LOGI(TAG, "DataLogger service initialized and started");
+
+    // Print initial status after all services are running
+    vTaskDelay(pdMS_TO_TICKS(3000)); // Wait for initial data collection
+    data_logger.printStatus();
+
+    ESP_LOGI(TAG, "Application startup complete - all services running");
+
+    // Keep app_main idle (this allows other tasks to continue running)
     vTaskDelete(nullptr);
 }

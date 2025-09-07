@@ -1,9 +1,11 @@
 #pragma once
 
 #include "ComponentBase.hpp"
+#include "IDataSource.hpp"
 #include <esp_timer.h>
 #include <vector>
 #include <memory>
+#include <map>
 
 namespace digitoys::datalogger
 {
@@ -73,6 +75,32 @@ namespace digitoys::datalogger
          */
         esp_err_t clear();
 
+        /**
+         * @brief Register a data source for logging
+         * @param source Shared pointer to the data source
+         * @return ESP_OK on success, error code on failure
+         */
+        esp_err_t registerDataSource(DataSourcePtr source);
+
+        /**
+         * @brief Unregister a data source
+         * @param source_name Name of the source to unregister
+         * @return ESP_OK on success, error code on failure
+         */
+        esp_err_t unregisterDataSource(const std::string &source_name);
+
+        /**
+         * @brief Get list of registered data sources
+         * @return Vector of source names
+         */
+        std::vector<std::string> getRegisteredSources() const;
+
+        /**
+         * @brief Collect data from all registered sources
+         * @return ESP_OK on success, error code on failure
+         */
+        esp_err_t collectFromSources();
+
     private:
         static const char *TAG;
 
@@ -82,6 +110,11 @@ namespace digitoys::datalogger
         // Memory tracking
         size_t current_memory_usage_ = 0;
         size_t entry_count_ = 0;
+
+        // Data source management
+        std::map<std::string, DataSourcePtr> data_sources_;
+        std::vector<DataEntry> collected_data_;
+        esp_timer_handle_t collection_timer_ = nullptr;
 
         /**
          * @brief Timer callback for auto-flush
@@ -97,6 +130,21 @@ namespace digitoys::datalogger
          * @brief Check memory limits
          */
         bool checkMemoryLimits() const;
+
+        /**
+         * @brief Timer callback for data collection
+         */
+        static void collectionTimerCallback(void *arg);
+
+        /**
+         * @brief Internal data collection from sources
+         */
+        esp_err_t doDataCollection();
+
+        /**
+         * @brief Calculate memory usage for a data entry
+         */
+        size_t calculateEntrySize(const DataEntry &entry) const;
     };
 
 } // namespace digitoys::datalogger

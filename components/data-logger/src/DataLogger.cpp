@@ -1,6 +1,7 @@
 #include "DataLogger.hpp"
 #include <esp_log.h>
 #include <cstring>
+#include <algorithm>
 
 namespace digitoys::datalogger
 {
@@ -21,6 +22,11 @@ namespace digitoys::datalogger
         {
             esp_timer_delete(flush_timer_);
             flush_timer_ = nullptr;
+        }
+        if (collection_timer_)
+        {
+            esp_timer_delete(collection_timer_);
+            collection_timer_ = nullptr;
         }
         ESP_LOGD(TAG, "DataLogger destroyed");
     }
@@ -54,6 +60,21 @@ namespace digitoys::datalogger
             if (ret != ESP_OK)
             {
                 ESP_LOGE(TAG, "Failed to create flush timer: %s", esp_err_to_name(ret));
+                return ret;
+            }
+        }
+
+        // Create data collection timer (always created, started only when sources are registered)
+        {
+            esp_timer_create_args_t timer_args = {
+                .callback = &DataLogger::collectionTimerCallback,
+                .arg = this,
+                .name = "data_logger_collect"};
+
+            esp_err_t ret = esp_timer_create(&timer_args, &collection_timer_);
+            if (ret != ESP_OK)
+            {
+                ESP_LOGE(TAG, "Failed to create collection timer: %s", esp_err_to_name(ret));
                 return ret;
             }
         }
@@ -111,10 +132,14 @@ namespace digitoys::datalogger
 
         ESP_LOGI(TAG, "Stopping DataLogger...");
 
-        // Stop timer
+        // Stop timers
         if (flush_timer_)
         {
             esp_timer_stop(flush_timer_);
+        }
+        if (collection_timer_)
+        {
+            esp_timer_stop(collection_timer_);
         }
 
         // Final flush
@@ -138,17 +163,23 @@ namespace digitoys::datalogger
             stop();
         }
 
-        // Cleanup timer
+        // Cleanup timers
         if (flush_timer_)
         {
             esp_timer_delete(flush_timer_);
             flush_timer_ = nullptr;
         }
+        if (collection_timer_)
+        {
+            esp_timer_delete(collection_timer_);
+            collection_timer_ = nullptr;
+        }
 
-        // Clear all data
+        // Clear all data and sources
         if (config_.enabled)
         {
             clear();
+            data_sources_.clear();
         }
 
         setState(digitoys::core::ComponentState::UNINITIALIZED);
@@ -184,6 +215,9 @@ namespace digitoys::datalogger
 
         ESP_LOGI(TAG, "Clearing all data (entries: %zu, memory: %zu bytes)",
                  entry_count_, current_memory_usage_);
+
+        // Clear collected data
+        collected_data_.clear();
 
         // Reset counters
         current_memory_usage_ = 0;
@@ -222,6 +256,188 @@ namespace digitoys::datalogger
     {
         size_t limit_bytes = config_.max_memory_kb * 1024;
         return current_memory_usage_ < limit_bytes;
+    }
+
+    esp_err_t DataLogger::registerDataSource(DataSourcePtr source)
+    {
+        if (!source)
+        {
+            ESP_LOGE(TAG, "Cannot register null data source");
+            return ESP_ERR_INVALID_ARG;
+        }
+
+        if (!isEnabled())
+        {
+            ESP_LOGW(TAG, "DataLogger not enabled, skipping data source registration");
+            return ESP_OK;
+        }
+
+        DataSourceConfig config = source->getSourceConfig();
+
+        if (data_sources_.find(config.source_name) != data_sources_.end())
+        {
+            ESP_LOGW(TAG, "Data source '%s' already registered", config.source_name.c_str());
+            return ESP_ERR_INVALID_STATE;
+        }
+
+        // Register the source
+        data_sources_[config.source_name] = source;
+
+        // Call registration callback
+        esp_err_t ret = source->onRegistered();
+        if (ret != ESP_OK)
+        {
+            ESP_LOGE(TAG, "Data source '%s' registration callback failed: %s",
+                     config.source_name.c_str(), esp_err_to_name(ret));
+            data_sources_.erase(config.source_name);
+            return ret;
+        }
+
+        ESP_LOGI(TAG, "Registered data source '%s' (rate: %lu ms)",
+                 config.source_name.c_str(), config.sample_rate_ms);
+
+        // Start collection timer if this is the first source and we're running
+        if (data_sources_.size() == 1 && isRunning() && collection_timer_)
+        {
+            // Use minimum sample rate from all sources
+            uint32_t min_rate = config.sample_rate_ms;
+            for (const auto &pair : data_sources_)
+            {
+                DataSourceConfig src_config = pair.second->getSourceConfig();
+                min_rate = std::min(min_rate, src_config.sample_rate_ms);
+            }
+
+            ret = esp_timer_start_periodic(collection_timer_, min_rate * 1000);
+            if (ret != ESP_OK)
+            {
+                ESP_LOGE(TAG, "Failed to start collection timer: %s", esp_err_to_name(ret));
+            }
+        }
+
+        return ESP_OK;
+    }
+
+    esp_err_t DataLogger::unregisterDataSource(const std::string &source_name)
+    {
+        auto it = data_sources_.find(source_name);
+        if (it == data_sources_.end())
+        {
+            ESP_LOGW(TAG, "Data source '%s' not found", source_name.c_str());
+            return ESP_ERR_NOT_FOUND;
+        }
+
+        // Call unregistration callback
+        esp_err_t ret = it->second->onUnregistered();
+        if (ret != ESP_OK)
+        {
+            ESP_LOGW(TAG, "Data source '%s' unregistration callback failed: %s",
+                     source_name.c_str(), esp_err_to_name(ret));
+        }
+
+        data_sources_.erase(it);
+        ESP_LOGI(TAG, "Unregistered data source '%s'", source_name.c_str());
+
+        // Stop collection timer if no sources remain
+        if (data_sources_.empty() && collection_timer_)
+        {
+            esp_timer_stop(collection_timer_);
+        }
+
+        return ESP_OK;
+    }
+
+    std::vector<std::string> DataLogger::getRegisteredSources() const
+    {
+        std::vector<std::string> sources;
+        sources.reserve(data_sources_.size());
+
+        for (const auto &pair : data_sources_)
+        {
+            sources.push_back(pair.first);
+        }
+
+        return sources;
+    }
+
+    esp_err_t DataLogger::collectFromSources()
+    {
+        if (!isEnabled() || data_sources_.empty())
+        {
+            return ESP_OK;
+        }
+
+        return doDataCollection();
+    }
+
+    void DataLogger::collectionTimerCallback(void *arg)
+    {
+        DataLogger *logger = static_cast<DataLogger *>(arg);
+        if (logger && logger->isEnabled())
+        {
+            logger->doDataCollection();
+        }
+    }
+
+    esp_err_t DataLogger::doDataCollection()
+    {
+        if (data_sources_.empty())
+        {
+            return ESP_OK;
+        }
+
+        size_t initial_count = collected_data_.size();
+
+        for (const auto &pair : data_sources_)
+        {
+            const std::string &source_name = pair.first;
+            DataSourcePtr source = pair.second;
+
+            if (!source->isReady())
+            {
+                continue;
+            }
+
+            std::vector<DataEntry> entries;
+            esp_err_t ret = source->collectData(entries);
+
+            if (ret != ESP_OK)
+            {
+                ESP_LOGW(TAG, "Failed to collect data from source '%s': %s",
+                         source_name.c_str(), esp_err_to_name(ret));
+                continue;
+            }
+
+            // Add entries to collected data with memory limit checking
+            for (const DataEntry &entry : entries)
+            {
+                size_t entry_size = calculateEntrySize(entry);
+
+                if (!checkMemoryLimits() ||
+                    (current_memory_usage_ + entry_size) > (config_.max_memory_kb * 1024))
+                {
+                    ESP_LOGW(TAG, "Memory limit reached, skipping entry from '%s'", source_name.c_str());
+                    break;
+                }
+
+                collected_data_.push_back(entry);
+                current_memory_usage_ += entry_size;
+                entry_count_++;
+            }
+        }
+
+        size_t collected_count = collected_data_.size() - initial_count;
+        if (collected_count > 0)
+        {
+            ESP_LOGD(TAG, "Collected %zu entries from %zu sources",
+                     collected_count, data_sources_.size());
+        }
+
+        return ESP_OK;
+    }
+
+    size_t DataLogger::calculateEntrySize(const DataEntry &entry) const
+    {
+        return sizeof(DataEntry) + entry.key.size() + entry.value.size();
     }
 
 } // namespace digitoys::datalogger

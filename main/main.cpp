@@ -9,7 +9,7 @@
 #include "WifiMonitor.hpp" // Add our new component
 #include "SystemMonitor.hpp"
 #include "ControlTask.hpp"
-#include "DataLoggerService.hpp"  // Add DataLogger integration
+#include "DataLoggerService.hpp" // Add DataLogger integration
 
 static const char *TAG = "APP_MAIN";
 using namespace lidar;
@@ -50,6 +50,10 @@ extern "C" void app_main()
     ESP_ERROR_CHECK(data_logger.initialize());
     ESP_ERROR_CHECK(data_logger.start());
     ESP_LOGI(TAG, "DataLogger service initialized and started");
+
+    // --- Connect DataLogger to WiFi Monitor for button control ---
+    wifi_mon.setDataLoggerService(&data_logger);
+    ESP_LOGI(TAG, "DataLogger connected to WiFi Monitor for logging control");
 
     // Print initial status after all services are running
     vTaskDelay(pdMS_TO_TICKS(3000)); // Wait for initial data collection

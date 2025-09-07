@@ -12,6 +12,11 @@
 #include <vector>
 #include <string>
 
+// Forward declare to avoid circular dependency
+namespace digitoys::datalogger {
+    class DataLoggerService;
+}
+
 namespace wifi_monitor
 {
     /**
@@ -67,7 +72,19 @@ namespace wifi_monitor
         /**
          * @brief Constructor
          */
-        WifiMonitor() : ComponentBase("WifiMonitor") {}
+        /**
+         * @brief Construct the WiFi Monitor component
+         * @param data_logger_service Optional DataLogger service for logging control
+         */
+        WifiMonitor(digitoys::datalogger::DataLoggerService* data_logger_service = nullptr) 
+            : ComponentBase("WifiMonitor"), data_logger_service_(data_logger_service) {}
+
+        /**
+         * @brief Set the DataLogger service for logging control (can be called after construction)
+         */
+        void setDataLoggerService(digitoys::datalogger::DataLoggerService* data_logger_service) {
+            data_logger_service_ = data_logger_service;
+        }
 
         /**
          * @brief Destructor
@@ -199,6 +216,9 @@ namespace wifi_monitor
         bool isWebSocketFrame(httpd_req_t *req);
 
     private:
+        // DataLogger integration
+        digitoys::datalogger::DataLoggerService* data_logger_service_ = nullptr;
+
         // Network interfaces
         esp_netif_t *ap_netif_ = nullptr;
 

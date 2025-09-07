@@ -652,6 +652,49 @@ namespace wifi_monitor
             background-color: var(--gauge-bg);
             border-radius: 4px;
         }
+        .btn {
+            background-color: var(--accent-green);
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            margin: 0.25rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: background-color 0.3s ease;
+        }
+        .btn:hover {
+            opacity: 0.9;
+        }
+        .btn-danger {
+            background-color: var(--accent-red);
+        }
+        .btn-warning {
+            background-color: var(--accent-orange);
+        }
+        .log-status {
+            background-color: #1f2937;
+            padding: 0.75rem;
+            border-radius: 4px;
+            margin-bottom: 1rem;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            border-left: 4px solid var(--accent-green);
+        }
+        .log-controls {
+            margin: 1rem 0;
+            text-align: center;
+        }
+        .log-info {
+            margin-top: 1rem;
+            padding: 0.5rem;
+            background-color: #0f1419;
+            border-radius: 4px;
+            font-size: 0.85rem;
+        }
+        .log-info div {
+            margin: 0.25rem 0;
+        }
     </style>
 </head>
 <body>
@@ -676,6 +719,24 @@ namespace wifi_monitor
     <div class="container">
         <h2 style="color: var(--accent-green); margin-bottom: 1rem;">Vehicle Telemetry</h2>
         <div id="telemetryInfo">Loading telemetry data...</div>
+    </div>
+    
+    <div class="container">
+        <h2 style="color: var(--accent-green); margin-bottom: 1rem;">Data Logging</h2>
+        <div class="log-status">
+            Status: <span id="logStatus">Stopped</span> | 
+            Entries: <span id="logEntries">0</span> | 
+            Size: <span id="logSize">0 KB</span>
+        </div>
+        <div class="log-controls">
+            <button class="btn" id="startBtn">Start Logging</button>
+            <button class="btn btn-danger" id="stopBtn">Stop Logging</button>
+            <button class="btn btn-warning" id="exportBtn">Export Data</button>
+        </div>
+        <div class="log-info">
+            <div>Last entry: <span id="lastEntry">Never</span></div>
+            <div>Session: <span id="sessionTime">00:00:00</span></div>
+        </div>
     </div>
     
     <ul class="usage-list" id="metrics"></ul>

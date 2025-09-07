@@ -666,6 +666,10 @@ namespace wifi_monitor
         .btn:hover {
             opacity: 0.9;
         }
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
         .btn-danger {
             background-color: var(--accent-red);
         }
@@ -985,6 +989,129 @@ namespace wifi_monitor
 
         // Start with WebSocket
         connectWebSocket();
+        
+        // Logging functionality - Phase 2
+        var loggingActive = false;
+        var logEntries = 0;
+        var sessionStartTime = null;
+        var sessionTimer = null;
+        
+        function updateLogStatus(status) {
+            document.getElementById('logStatus').textContent = status;
+        }
+        
+        function updateLogEntries(count) {
+            logEntries = count;
+            document.getElementById('logEntries').textContent = count;
+        }
+        
+        function updateLogSize(sizeKB) {
+            document.getElementById('logSize').textContent = sizeKB + ' KB';
+        }
+        
+        function updateLastEntry() {
+            var now = new Date();
+            var timeStr = now.getHours() + ':' + 
+                         (now.getMinutes() < 10 ? '0' : '') + now.getMinutes() + ':' +
+                         (now.getSeconds() < 10 ? '0' : '') + now.getSeconds();
+            document.getElementById('lastEntry').textContent = timeStr;
+        }
+        
+        function updateSessionTime() {
+            if (!sessionStartTime) return;
+            
+            var now = new Date();
+            var diff = Math.floor((now - sessionStartTime) / 1000);
+            var hours = Math.floor(diff / 3600);
+            var minutes = Math.floor((diff % 3600) / 60);
+            var seconds = diff % 60;
+            
+            var timeStr = (hours < 10 ? '0' : '') + hours + ':' +
+                         (minutes < 10 ? '0' : '') + minutes + ':' +
+                         (seconds < 10 ? '0' : '') + seconds;
+            document.getElementById('sessionTime').textContent = timeStr;
+        }
+        
+        function startLogging() {
+            if (loggingActive) return;
+            
+            console.log('Starting data logging...');
+            loggingActive = true;
+            sessionStartTime = new Date();
+            
+            updateLogStatus('Active');
+            updateLogEntries(0);
+            updateLogSize(0);
+            
+            // Start session timer
+            sessionTimer = setInterval(updateSessionTime, 1000);
+            
+            // Update button states
+            document.getElementById('startBtn').disabled = true;
+            document.getElementById('stopBtn').disabled = false;
+            
+            // Simulate logging activity (Phase 3 will replace this with real backend calls)
+            setTimeout(function() {
+                if (loggingActive) {
+                    updateLogEntries(logEntries + 1);
+                    updateLogSize(Math.floor(logEntries * 0.5));
+                    updateLastEntry();
+                }
+            }, 2000);
+        }
+        
+        function stopLogging() {
+            if (!loggingActive) return;
+            
+            console.log('Stopping data logging...');
+            loggingActive = false;
+            sessionStartTime = null;
+            
+            updateLogStatus('Stopped');
+            
+            // Stop session timer
+            if (sessionTimer) {
+                clearInterval(sessionTimer);
+                sessionTimer = null;
+            }
+            
+            // Update button states
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+            
+            document.getElementById('sessionTime').textContent = '00:00:00';
+        }
+        
+        function exportData() {
+            console.log('Exporting log data...');
+            
+            if (logEntries === 0) {
+                alert('No data to export. Start logging first.');
+                return;
+            }
+            
+            // Phase 3 will implement real export functionality
+            alert('Export feature coming in Phase 3! Currently have ' + logEntries + ' entries.');
+        }
+        
+        // Initialize logging UI
+        function initLogging() {
+            var startBtn = document.getElementById('startBtn');
+            var stopBtn = document.getElementById('stopBtn');
+            var exportBtn = document.getElementById('exportBtn');
+            
+            if (startBtn) startBtn.addEventListener('click', startLogging);
+            if (stopBtn) stopBtn.addEventListener('click', stopLogging);
+            if (exportBtn) exportBtn.addEventListener('click', exportData);
+            
+            // Initial button states
+            if (stopBtn) stopBtn.disabled = true;
+            
+            console.log('Logging UI initialized');
+        }
+        
+        // Initialize everything
+        initLogging();
         
         console.log('Dashboard initialized with WebSocket + HTTP fallback');
     </script>

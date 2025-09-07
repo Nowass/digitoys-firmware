@@ -59,6 +59,17 @@ namespace wifi_monitor
             return ESP_ERR_NO_MEM;
         }
 
+        diagnostic_mutex_ = xSemaphoreCreateMutex();
+        if (diagnostic_mutex_ == nullptr)
+        {
+            DIGITOYS_LOGE("WifiMonitor", "Failed to create diagnostic logging mutex");
+            vSemaphoreDelete(telemetry_mutex_);
+            vSemaphoreDelete(ws_clients_mutex_);
+            telemetry_mutex_ = nullptr;
+            ws_clients_mutex_ = nullptr;
+            return ESP_ERR_NO_MEM;
+        }
+
         // Initialize telemetry data with timestamp
         telemetry_data_.timestamp = esp_timer_get_time() / 1000; // Convert to milliseconds
 
@@ -178,8 +189,18 @@ namespace wifi_monitor
             ws_clients_mutex_ = nullptr;
         }
 
+        if (diagnostic_mutex_)
+        {
+            vSemaphoreDelete(diagnostic_mutex_);
+            diagnostic_mutex_ = nullptr;
+        }
+
         // Clear WebSocket clients vector
         websocket_clients_.clear();
+
+        // Clear diagnostic log
+        diagnostic_log_.clear();
+        logging_active_ = false;
 
         setState(digitoys::core::ComponentState::UNINITIALIZED);
         DIGITOYS_LOGI("WifiMonitor", "WiFi Monitor component shutdown complete");
@@ -384,6 +405,30 @@ namespace wifi_monitor
             .is_websocket = true,
             .handle_ws_control_frames = true};
         httpd_register_uri_handler(server_, &ws_uri);
+
+        // Logging control endpoint (start/stop/clear logging)
+        httpd_uri_t logging_control_uri = {
+            .uri = "/logging/control",
+            .method = HTTP_POST,
+            .handler = loggingControlHandler,
+            .user_ctx = nullptr};
+        httpd_register_uri_handler(server_, &logging_control_uri);
+
+        // Logging control status endpoint (GET)
+        httpd_uri_t logging_status_uri = {
+            .uri = "/logging/control",
+            .method = HTTP_GET,
+            .handler = loggingControlHandler,
+            .user_ctx = nullptr};
+        httpd_register_uri_handler(server_, &logging_status_uri);
+
+        // Logging data endpoint (get logged data)
+        httpd_uri_t logging_data_uri = {
+            .uri = "/logging/data",
+            .method = HTTP_GET,
+            .handler = loggingDataHandler,
+            .user_ctx = nullptr};
+        httpd_register_uri_handler(server_, &logging_data_uri);
 
         DIGITOYS_LOGI("WifiMonitor", "HTTP server started on port %d with WebSocket support", config.server_port);
         return ESP_OK;
@@ -995,6 +1040,7 @@ namespace wifi_monitor
         var logEntries = 0;
         var sessionStartTime = null;
         var sessionTimer = null;
+        var dataRefreshTimer = null;
         
         function updateLogStatus(status) {
             document.getElementById('logStatus').textContent = status;
@@ -1036,62 +1082,145 @@ namespace wifi_monitor
             if (loggingActive) return;
             
             console.log('Starting data logging...');
-            loggingActive = true;
-            sessionStartTime = new Date();
             
-            updateLogStatus('Active');
-            updateLogEntries(0);
-            updateLogSize(0);
-            
-            // Start session timer
-            sessionTimer = setInterval(updateSessionTime, 1000);
-            
-            // Update button states
-            document.getElementById('startBtn').disabled = true;
-            document.getElementById('stopBtn').disabled = false;
-            
-            // Simulate logging activity (Phase 3 will replace this with real backend calls)
-            setTimeout(function() {
-                if (loggingActive) {
-                    updateLogEntries(logEntries + 1);
-                    updateLogSize(Math.floor(logEntries * 0.5));
-                    updateLastEntry();
+            // Call backend to start logging
+            fetch('/logging/control', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({action: 'start'})
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    loggingActive = true;
+                    sessionStartTime = new Date();
+                    
+                    updateLogStatus('Active');
+                    updateLogEntries(0);
+                    updateLogSize(0);
+                    
+                    // Start session timer
+                    sessionTimer = setInterval(updateSessionTime, 1000);
+                    
+                    // Start periodic data refresh
+                    dataRefreshTimer = setInterval(refreshLogData, 2000);
+                    
+                    // Update button states
+                    document.getElementById('startBtn').disabled = true;
+                    document.getElementById('stopBtn').disabled = false;
+                    
+                    console.log('Logging started successfully');
                 }
-            }, 2000);
+            })
+            .catch(error => {
+                console.error('Failed to start logging:', error);
+                alert('Failed to start logging: ' + error.message);
+            });
         }
         
         function stopLogging() {
             if (!loggingActive) return;
             
             console.log('Stopping data logging...');
-            loggingActive = false;
-            sessionStartTime = null;
             
-            updateLogStatus('Stopped');
+            // Call backend to stop logging
+            fetch('/logging/control', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({action: 'stop'})
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    loggingActive = false;
+                    sessionStartTime = null;
+                    
+                    updateLogStatus('Stopped');
+                    
+                    // Stop timers
+                    if (sessionTimer) {
+                        clearInterval(sessionTimer);
+                        sessionTimer = null;
+                    }
+                    if (dataRefreshTimer) {
+                        clearInterval(dataRefreshTimer);
+                        dataRefreshTimer = null;
+                    }
+                    
+                    // Update button states
+                    document.getElementById('startBtn').disabled = false;
+                    document.getElementById('stopBtn').disabled = true;
+                    
+                    document.getElementById('sessionTime').textContent = '00:00:00';
+                    console.log('Logging stopped successfully');
+                }
+            })
+            .catch(error => {
+                console.error('Failed to stop logging:', error);
+                alert('Failed to stop logging: ' + error.message);
+            });
+        }
+
+        function refreshLogData() {
+            if (!loggingActive) return;
             
-            // Stop session timer
-            if (sessionTimer) {
-                clearInterval(sessionTimer);
-                sessionTimer = null;
-            }
-            
-            // Update button states
-            document.getElementById('startBtn').disabled = false;
-            document.getElementById('stopBtn').disabled = true;
-            
-            document.getElementById('sessionTime').textContent = '00:00:00';
+            // Get current logging status and entry count
+            fetch('/logging/control')
+            .then(response => response.json())
+            .then(data => {
+                if (data.logging_active) {
+                    updateLogEntries(data.entry_count);
+                    updateLogSize(Math.floor(data.entry_count * 0.1)); // Estimate size in KB
+                    updateLastEntry();
+                }
+            })
+            .catch(error => console.error('Failed to refresh log data:', error));
         }
         
         function exportData() {
             console.log('Exporting log data...');
             
-            if (logEntries === 0) {
-                alert('No data to export. Start logging first.');
-                return;
-            }
-            
-            // Phase 3 will implement real export functionality
-            alert('Export feature coming in Phase 3! Currently have ' + logEntries + ' entries.');
+            // Get current entry count first
+            fetch('/logging/control')
+            .then(response => response.json())
+            .then(statusData => {
+                if (statusData.entry_count === 0) {
+                    alert('No data to export. Start logging first.');
+                    return;
+                }
+                
+                // Fetch the actual log data
+                return fetch('/logging/data');
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.entries && data.entries.length > 0) {
+                    // Convert to CSV format
+                    const csvHeader = 'Timestamp,Cached_Duty,Direct_Duty,Current_Input,Distance,Brake_Distance,Warning_Distance,Cached_Throttle,Throttle_Pressed,Driving_Forward,Wants_Reverse,Obstacle_Detected,Warning_Active\\n';
+                    const csvRows = data.entries.map(entry => 
+                        `${entry.timestamp},${entry.cached_duty},${entry.direct_duty},${entry.current_input},${entry.distance},${entry.brake_distance},${entry.warning_distance},${entry.cached_throttle},${entry.throttle_pressed},${entry.driving_forward},${entry.wants_reverse},${entry.obstacle_detected},${entry.warning_active}`
+                    ).join('\\n');
+                    
+                    const csvContent = csvHeader + csvRows;
+                    const blob = new Blob([csvContent], { type: 'text/csv' });
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `digitoys_log_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.csv`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(url);
+                    
+                    console.log(`Exported ${data.entries.length} log entries`);
+                } else {
+                    alert('No data available for export.');
+                }
+            })
+            .catch(error => {
+                console.error('Failed to export data:', error);
+                alert('Failed to export data: ' + error.message);
+            });
         }
         
         // Initialize logging UI
@@ -1257,6 +1386,223 @@ namespace wifi_monitor
     void WifiMonitor::webSocketTaskFunction(void *param)
     {
         // TODO: Implement periodic WebSocket broadcast to all connected clients
+    }
+
+    // Diagnostic logging implementation
+    void WifiMonitor::addDiagnosticEntry(const DiagnosticEntry &entry)
+    {
+        if (!logging_active_) return;
+
+        if (xSemaphoreTake(diagnostic_mutex_, pdMS_TO_TICKS(100)) == pdTRUE)
+        {
+            // Add timestamp if not set
+            DiagnosticEntry timestamped_entry = entry;
+            if (timestamped_entry.timestamp == 0)
+            {
+                timestamped_entry.timestamp = esp_timer_get_time() / 1000; // Convert to milliseconds
+            }
+
+            diagnostic_log_.push_back(timestamped_entry);
+
+            // Limit log size to prevent memory overflow
+            if (diagnostic_log_.size() > MAX_LOG_ENTRIES)
+            {
+                diagnostic_log_.erase(diagnostic_log_.begin());
+            }
+
+            xSemaphoreGive(diagnostic_mutex_);
+        }
+    }
+
+    void WifiMonitor::logControlDiagnostics(float cached_duty, float direct_duty, float current_input,
+                                           float distance, float brake_distance, float warning_distance,
+                                           bool cached_throttle, bool throttle_pressed, bool driving_forward,
+                                           bool wants_reverse, bool obstacle_detected, bool warning_active)
+    {
+        DiagnosticEntry entry;
+        entry.cached_duty = cached_duty;
+        entry.direct_duty = direct_duty;
+        entry.current_input = current_input;
+        entry.distance = distance;
+        entry.brake_distance = brake_distance;
+        entry.warning_distance = warning_distance;
+        entry.cached_throttle = cached_throttle;
+        entry.throttle_pressed = throttle_pressed;
+        entry.driving_forward = driving_forward;
+        entry.wants_reverse = wants_reverse;
+        entry.obstacle_detected = obstacle_detected;
+        entry.warning_active = warning_active;
+        
+        addDiagnosticEntry(entry);
+    }
+
+    esp_err_t WifiMonitor::startLogging()
+    {
+        if (xSemaphoreTake(diagnostic_mutex_, pdMS_TO_TICKS(100)) == pdTRUE)
+        {
+            logging_active_ = true;
+            diagnostic_log_.clear(); // Start fresh
+            xSemaphoreGive(diagnostic_mutex_);
+            DIGITOYS_LOGI("WifiMonitor", "Diagnostic logging started");
+            return ESP_OK;
+        }
+        return ESP_ERR_TIMEOUT;
+    }
+
+    esp_err_t WifiMonitor::stopLogging()
+    {
+        if (xSemaphoreTake(diagnostic_mutex_, pdMS_TO_TICKS(100)) == pdTRUE)
+        {
+            logging_active_ = false;
+            xSemaphoreGive(diagnostic_mutex_);
+            DIGITOYS_LOGI("WifiMonitor", "Diagnostic logging stopped");
+            return ESP_OK;
+        }
+        return ESP_ERR_TIMEOUT;
+    }
+
+    bool WifiMonitor::isLoggingActive() const
+    {
+        return logging_active_;
+    }
+
+    void WifiMonitor::clearDiagnosticData()
+    {
+        if (xSemaphoreTake(diagnostic_mutex_, pdMS_TO_TICKS(100)) == pdTRUE)
+        {
+            diagnostic_log_.clear();
+            xSemaphoreGive(diagnostic_mutex_);
+            DIGITOYS_LOGI("WifiMonitor", "Diagnostic log cleared");
+        }
+    }
+
+    std::string WifiMonitor::getDiagnosticDataJSON() const
+    {
+        std::string json = "{\"entries\":[";
+        
+        if (xSemaphoreTake(diagnostic_mutex_, pdMS_TO_TICKS(100)) == pdTRUE)
+        {
+            for (size_t i = 0; i < diagnostic_log_.size(); ++i)
+            {
+                const auto &entry = diagnostic_log_[i];
+                if (i > 0) json += ",";
+                
+                json += "{";
+                json += "\"timestamp\":" + std::to_string(entry.timestamp) + ",";
+                json += "\"cached_duty\":" + std::to_string(entry.cached_duty) + ",";
+                json += "\"direct_duty\":" + std::to_string(entry.direct_duty) + ",";
+                json += "\"current_input\":" + std::to_string(entry.current_input) + ",";
+                json += "\"distance\":" + std::to_string(entry.distance) + ",";
+                json += "\"brake_distance\":" + std::to_string(entry.brake_distance) + ",";
+                json += "\"warning_distance\":" + std::to_string(entry.warning_distance) + ",";
+                json += "\"cached_throttle\":" + std::string(entry.cached_throttle ? "true" : "false") + ",";
+                json += "\"throttle_pressed\":" + std::string(entry.throttle_pressed ? "true" : "false") + ",";
+                json += "\"driving_forward\":" + std::string(entry.driving_forward ? "true" : "false") + ",";
+                json += "\"wants_reverse\":" + std::string(entry.wants_reverse ? "true" : "false") + ",";
+                json += "\"obstacle_detected\":" + std::string(entry.obstacle_detected ? "true" : "false") + ",";
+                json += "\"warning_active\":" + std::string(entry.warning_active ? "true" : "false");
+                json += "}";
+            }
+            xSemaphoreGive(diagnostic_mutex_);
+        }
+        
+        json += "],\"count\":" + std::to_string(diagnostic_log_.size()) + "}";
+        return json;
+    }
+
+    // HTTP handlers for diagnostic logging
+    esp_err_t WifiMonitor::addCorsHeaders(httpd_req_t *req)
+{
+    esp_err_t ret = ESP_OK;
+    
+    ret |= httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    ret |= httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    ret |= httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type");
+    
+    return ret;
+}
+
+esp_err_t WifiMonitor::loggingControlHandler(httpd_req_t *req)
+    {
+        if (!instance_) return ESP_ERR_INVALID_STATE;
+
+        // Add CORS headers
+        instance_->addCorsHeaders(req);
+
+        if (req->method == HTTP_POST)
+        {
+            // Parse request body for action
+            char content[100];
+            size_t recv_size = std::min(req->content_len, sizeof(content) - 1);
+            
+            if (httpd_req_recv(req, content, recv_size) <= 0)
+            {
+                httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Failed to receive request body");
+                return ESP_ERR_INVALID_ARG;
+            }
+            content[recv_size] = '\0';
+
+            std::string action(content);
+            esp_err_t result = ESP_OK;
+
+            if (action.find("start") != std::string::npos)
+            {
+                result = instance_->startLogging();
+            }
+            else if (action.find("stop") != std::string::npos)
+            {
+                result = instance_->stopLogging();
+            }
+            else if (action.find("clear") != std::string::npos)
+            {
+                instance_->clearDiagnosticData();
+            }
+            else
+            {
+                httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid action");
+                return ESP_ERR_INVALID_ARG;
+            }
+
+            if (result == ESP_OK)
+            {
+                httpd_resp_set_type(req, "application/json");
+                const char* response = "{\"status\":\"success\"}";
+                httpd_resp_send(req, response, strlen(response));
+            }
+            else
+            {
+                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Operation failed");
+            }
+        }
+        else
+        {
+            // GET request - return current logging status
+            httpd_resp_set_type(req, "application/json");
+            
+            std::string response = "{";
+            response += "\"logging_active\":" + std::string(instance_->isLoggingActive() ? "true" : "false");
+            response += ",\"entry_count\":" + std::to_string(instance_->diagnostic_log_.size());
+            response += "}";
+            
+            httpd_resp_send(req, response.c_str(), response.length());
+        }
+
+        return ESP_OK;
+    }
+
+    esp_err_t WifiMonitor::loggingDataHandler(httpd_req_t *req)
+    {
+        if (!instance_) return ESP_ERR_INVALID_STATE;
+
+        // Add CORS headers
+        instance_->addCorsHeaders(req);
+
+        httpd_resp_set_type(req, "application/json");
+        
+        std::string json_data = instance_->getDiagnosticDataJSON();
+        httpd_resp_send(req, json_data.c_str(), json_data.length());
+
+        return ESP_OK;
     }
 
 } // namespace wifi_monitor

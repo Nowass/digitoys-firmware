@@ -6,5 +6,5 @@ idf_component_register(
          "src/SpeedController.cpp"
     INCLUDE_DIRS "include"
     REQUIRES "freertos" "esp_timer" "log" "adas-pwm-driver" "lidar-driver" "monitor" "digitoys-core"
-    PRIV_REQUIRES "driver"
+    PRIV_REQUIRES "driver" "wifi-monitor"
 )

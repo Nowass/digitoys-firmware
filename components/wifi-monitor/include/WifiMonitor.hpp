@@ -10,6 +10,7 @@
 #include <IMonitor.hpp>
 #include <Constants.hpp>
 #include <vector>
+#include <string>
 
 namespace wifi_monitor
 {
@@ -23,6 +24,26 @@ namespace wifi_monitor
         float distance = 0.0f;  ///< Distance to obstacle (meters)
         float speed_est = 0.0f; ///< Estimated speed
         uint32_t timestamp = 0; ///< Timestamp of the data
+    };
+
+    /**
+     * @brief Diagnostic log entry capturing control system state
+     */
+    struct DiagnosticEntry
+    {
+        uint32_t timestamp = 0;         ///< Timestamp of the entry
+        float cached_duty = 0.0f;       ///< Cached duty cycle reading
+        float direct_duty = 0.0f;       ///< Direct duty cycle reading
+        float current_input = 0.0f;     ///< Current RC input duty cycle
+        float distance = 0.0f;          ///< LiDAR distance reading
+        float brake_distance = 0.0f;    ///< Dynamic brake distance
+        float warning_distance = 0.0f;  ///< Dynamic warning distance
+        bool cached_throttle = false;   ///< Cached throttle state
+        bool throttle_pressed = false;  ///< Current throttle state
+        bool driving_forward = false;   ///< Forward driving flag
+        bool wants_reverse = false;     ///< Reverse input flag
+        bool obstacle_detected = false; ///< Obstacle detection flag
+        bool warning_active = false;    ///< Warning condition flag
     };
 
     /**
@@ -79,6 +100,61 @@ namespace wifi_monitor
          */
         esp_err_t getTelemetry(Telemetry &data) const;
 
+        /**
+         * @brief Add diagnostic log entry from control system
+         * @param entry Diagnostic data to log
+         */
+        void addDiagnosticEntry(const DiagnosticEntry &entry);
+
+        /**
+         * @brief Convenience method to log control system diagnostics
+         * @param cached_duty Cached duty cycle reading
+         * @param direct_duty Direct duty cycle reading
+         * @param current_input Current RC input
+         * @param distance LiDAR distance reading
+         * @param brake_distance Dynamic brake distance
+         * @param warning_distance Dynamic warning distance
+         * @param cached_throttle Cached throttle state
+         * @param throttle_pressed Current throttle state
+         * @param driving_forward Forward driving flag
+         * @param wants_reverse Reverse input flag
+         * @param obstacle_detected Obstacle detection flag
+         * @param warning_active Warning condition flag
+         */
+        void logControlDiagnostics(float cached_duty, float direct_duty, float current_input,
+                                  float distance, float brake_distance, float warning_distance,
+                                  bool cached_throttle, bool throttle_pressed, bool driving_forward,
+                                  bool wants_reverse, bool obstacle_detected, bool warning_active);
+
+        /**
+         * @brief Start diagnostic logging
+         * @return ESP_OK on success
+         */
+        esp_err_t startLogging();
+
+        /**
+         * @brief Stop diagnostic logging
+         * @return ESP_OK on success
+         */
+        esp_err_t stopLogging();
+
+        /**
+         * @brief Check if logging is active
+         * @return true if logging is active
+         */
+        bool isLoggingActive() const;
+
+        /**
+         * @brief Get logged diagnostic data as JSON
+         * @return JSON string with diagnostic entries
+         */
+        std::string getDiagnosticDataJSON() const;
+
+        /**
+         * @brief Clear all logged diagnostic data
+         */
+        void clearDiagnosticData();
+
     private:
         // WiFi and Network setup
         esp_err_t setupWifiAP();
@@ -103,9 +179,11 @@ namespace wifi_monitor
         static esp_err_t systemGetHandler(httpd_req_t *req);
         static esp_err_t indexGetHandler(httpd_req_t *req);
         static esp_err_t websocketHandler(httpd_req_t *req);
-
-        // Utility methods
-        esp_err_t addCorsHeaders(httpd_req_t *req);
+        static esp_err_t loggingControlHandler(httpd_req_t *req);
+        static esp_err_t loggingDataHandler(httpd_req_t *req);
+        
+        // Helper methods
+        static esp_err_t addCorsHeaders(httpd_req_t *req);
         bool isWebSocketFrame(httpd_req_t *req);
 
     private:
@@ -126,6 +204,12 @@ namespace wifi_monitor
         // WebSocket broadcast task
         TaskHandle_t ws_task_handle_ = nullptr;
         volatile bool ws_task_running_ = false;
+
+        // Diagnostic logging
+        std::vector<DiagnosticEntry> diagnostic_log_;
+        SemaphoreHandle_t diagnostic_mutex_ = nullptr;
+        bool logging_active_ = false;
+        static constexpr size_t MAX_LOG_ENTRIES = 1000; // Limit log size
 
         // Static instance for HTTP handlers
         static WifiMonitor *instance_;

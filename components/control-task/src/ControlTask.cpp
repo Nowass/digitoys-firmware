@@ -1,4 +1,5 @@
 #include "ControlTask.hpp"
+#include "WifiMonitor.hpp"
 #include <Constants.hpp>
 #include <Logger.hpp>
 #include <esp_timer.h>
@@ -184,6 +185,28 @@ namespace control
     {
         // Log RC diagnostics periodically
         rc_processor_.logDiagnostics(rc_status, state_.getDutyTestLogCounter());
+
+        // Send diagnostic data to WiFi Monitor if it's a WifiMonitor instance
+        // Note: Using static_cast since RTTI is disabled in ESP-IDF
+        // We assume ctx_->monitor is always a WifiMonitor in this configuration
+        wifi_monitor::WifiMonitor* wifi_monitor = static_cast<wifi_monitor::WifiMonitor*>(ctx_->monitor);
+        if (wifi_monitor)
+        {
+            wifi_monitor->logControlDiagnostics(
+                rc_status.cached_duty,
+                rc_status.direct_duty,
+                rc_status.current_input,
+                distance,
+                dynamic_brake_distance,
+                dynamic_warning_distance,
+                rc_status.cached_throttle,
+                rc_status.throttle_pressed,
+                rc_status.driving_forward,
+                rc_status.wants_reverse,
+                state_.isObstacleState(),
+                state_.isWarningState()
+            );
+        }
 
         // Debug log dynamic thresholds (every 2 seconds) when driving forward
         if (rc_status.driving_forward && ++state_.getThresholdLogCounter() >= digitoys::constants::control_task::THRESHOLD_LOG_INTERVAL)

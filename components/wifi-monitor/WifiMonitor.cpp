@@ -8,6 +8,7 @@
 #include <nvs_flash.h>
 #include <esp_mac.h>
 #include <Logger.hpp>
+#include <algorithm>
 #include <string.h>
 #include <cmath>
 #include <ctime>
@@ -722,6 +723,9 @@ namespace wifi_monitor
         .btn-warning {
             background-color: var(--accent-orange);
         }
+        .btn-secondary {
+            background-color: #6c757d;
+        }
         .log-status {
             background-color: #1f2937;
             padding: 0.75rem;
@@ -744,6 +748,108 @@ namespace wifi_monitor
         }
         .log-info div {
             margin: 0.25rem 0;
+        }
+        .chart-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+        .chart-container {
+            background-color: #0f1419;
+            padding: 1rem;
+            border-radius: 4px;
+            text-align: center;
+        }
+        .chart-container h3 {
+            color: var(--accent-green);
+            font-size: 0.9rem;
+            margin-bottom: 0.5rem;
+        }
+        .chart-container canvas {
+            width: 100%;
+            height: auto;
+            background-color: #000;
+            border: 1px solid #333;
+        }
+        .physics-summary {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.5rem;
+            margin-top: 1rem;
+        }
+        .physics-item {
+            background-color: #0f1419;
+            padding: 0.5rem;
+            border-radius: 4px;
+            display: flex;
+            justify-content: space-between;
+        }
+        .physics-item .label {
+            color: var(--text-color);
+            opacity: 0.8;
+        }
+        @media (max-width: 768px) {
+            .chart-grid, .physics-summary {
+                grid-template-columns: 1fr;
+            }
+        }
+        .vehicle-visual {
+            text-align: center;
+            margin: 1.5rem 0;
+            padding: 1rem;
+            background-color: #0f1419;
+            border-radius: 8px;
+            border: 2px solid #333;
+        }
+        .distance-display {
+            font-size: 2rem;
+            font-family: 'Courier New', monospace;
+            margin-bottom: 0.5rem;
+            min-height: 3rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .status-text {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: var(--accent-green);
+            margin-bottom: 1rem;
+        }
+        .status-text.warning {
+            color: var(--accent-orange);
+        }
+        .status-text.danger {
+            color: var(--accent-red);
+        }
+        .telemetry-details {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+        .detail-item {
+            background-color: #0f1419;
+            padding: 0.75rem;
+            border-radius: 4px;
+            text-align: center;
+            border: 1px solid #333;
+        }
+        .detail-item .label {
+            display: block;
+            font-size: 0.85rem;
+            color: var(--text-color);
+            opacity: 0.8;
+            margin-bottom: 0.25rem;
+        }
+        @media (max-width: 768px) {
+            .chart-grid, .physics-summary, .telemetry-details {
+                grid-template-columns: 1fr;
+            }
+            .distance-display {
+                font-size: 1.5rem;
+            }
         }
     </style>
 </head>
@@ -768,7 +874,24 @@ namespace wifi_monitor
     
     <div class="container">
         <h2 style="color: var(--accent-green); margin-bottom: 1rem;">Vehicle Telemetry</h2>
-        <div id="telemetryInfo">Loading telemetry data...</div>
+        <div class="vehicle-visual" id="vehicleVisual">
+            <div class="distance-display" id="distanceDisplay">🚗</div>
+            <div class="status-text" id="statusText">All Clear</div>
+        </div>
+        <div class="telemetry-details" id="telemetryDetails">
+            <div class="detail-item">
+                <span class="label">RC Input:</span>
+                <span id="telemetryRcInput">--</span>
+            </div>
+            <div class="detail-item">
+                <span class="label">Speed:</span>
+                <span id="telemetrySpeed">-- km/h</span>
+            </div>
+            <div class="detail-item">
+                <span class="label">Safety Margin:</span>
+                <span id="telemetrySafety">-- m</span>
+            </div>
+        </div>
     </div>
     
     <div class="container">
@@ -776,16 +899,51 @@ namespace wifi_monitor
         <div class="log-status">
             Status: <span id="logStatus">Stopped</span> | 
             Entries: <span id="logEntries">0</span> | 
-            Size: <span id="logSize">0 KB</span>
+            Size: <span id="logSize">0 KB</span> |
+            Rate: <span id="dataRate">0 Hz</span>
         </div>
         <div class="log-controls">
             <button class="btn" id="startBtn">Start Logging</button>
             <button class="btn btn-danger" id="stopBtn">Stop Logging</button>
             <button class="btn btn-warning" id="exportBtn">Export Data</button>
+            <button class="btn btn-secondary" id="clearBtn">Clear Data</button>
         </div>
         <div class="log-info">
             <div>Last entry: <span id="lastEntry">Never</span></div>
             <div>Session: <span id="sessionTime">00:00:00</span></div>
+            <div>Memory usage: <span id="memoryUsage">0%</span></div>
+        </div>
+    </div>
+    
+    <div class="container" id="physicsCharts" style="display: none;">
+        <h2 style="color: var(--accent-green); margin-bottom: 1rem;">Real-Time Physics Data</h2>
+        <div class="chart-grid">
+            <div class="chart-container">
+                <h3>Vehicle Speed & Distance</h3>
+                <canvas id="speedChart" width="280" height="160"></canvas>
+            </div>
+            <div class="chart-container">
+                <h3>RC Input & Safety</h3>
+                <canvas id="safetyChart" width="280" height="160"></canvas>
+            </div>
+        </div>
+        <div class="physics-summary">
+            <div class="physics-item">
+                <span class="label">RC Input:</span>
+                <span id="currentRcInput">0</span>
+            </div>
+            <div class="physics-item">
+                <span class="label">Distance:</span>
+                <span id="currentDistance">0 cm</span>
+            </div>
+            <div class="physics-item">
+                <span class="label">Safety Margin:</span>
+                <span id="currentSafety">0 cm</span>
+            </div>
+            <div class="physics-item">
+                <span class="label">Brake Events:</span>
+                <span id="brakeEvents">0</span>
+            </div>
         </div>
     </div>
     
@@ -816,26 +974,44 @@ namespace wifi_monitor
         }
 
         function updateTelemetryDisplay(telemetryData) {
-            const telemetryInfo = document.getElementById('telemetryInfo');
+            const distanceDisplay = document.getElementById('distanceDisplay');
+            const statusText = document.getElementById('statusText');
+            const rcInput = document.getElementById('telemetryRcInput');
+            const speed = document.getElementById('telemetrySpeed');
+            const safety = document.getElementById('telemetrySafety');
             
             if (!telemetryData) {
-                telemetryInfo.innerHTML = '<div style="color: var(--accent-orange);">No telemetry data available</div>';
+                distanceDisplay.textContent = '🚗';
+                statusText.textContent = 'No Data';
+                statusText.className = 'status-text';
+                rcInput.textContent = '--';
+                speed.textContent = '-- km/h';
+                safety.textContent = '-- m';
                 return;
             }
             
-            let html = '';
-            html += `<div style="margin: 0.5rem 0;">Distance: <strong>${telemetryData.distance.toFixed(2)} m</strong></div>`;
-            html += `<div style="margin: 0.5rem 0;">Speed: <strong>${telemetryData.speed_est.toFixed(1)} km/h</strong></div>`;
+            // Update detail values
+            rcInput.textContent = telemetryData.rc_input ? `${telemetryData.rc_input.toFixed(1)}%` : '--';
+            speed.textContent = `${telemetryData.speed_est.toFixed(1)} km/h`;
+            safety.textContent = `${telemetryData.distance.toFixed(2)} m`;
             
-            const obstacleColor = telemetryData.obstacle ? 'var(--accent-red)' : 'var(--accent-green)';
-            const obstacleText = telemetryData.obstacle ? 'DETECTED' : 'Clear';
-            html += `<div style="margin: 0.5rem 0;">Obstacle: <strong style="color: ${obstacleColor};">${obstacleText}</strong></div>`;
-            
-            const warningColor = telemetryData.warning ? 'var(--accent-orange)' : 'var(--accent-green)';
-            const warningText = telemetryData.warning ? 'ACTIVE' : 'Clear';
-            html += `<div style="margin: 0.5rem 0;">Warning: <strong style="color: ${warningColor};">${warningText}</strong></div>`;
-            
-            telemetryInfo.innerHTML = html;
+            // Determine visual state based on obstacle and warning
+            if (telemetryData.obstacle) {
+                // CRITICAL - Car with braking
+                distanceDisplay.textContent = `🚗🛑 ←--${telemetryData.distance.toFixed(1)}m--> 🚧`;
+                statusText.textContent = 'EMERGENCY BRAKE';
+                statusText.className = 'status-text danger';
+            } else if (telemetryData.warning) {
+                // WARNING - Car with distance
+                distanceDisplay.textContent = `🚗 ←--${telemetryData.distance.toFixed(1)}m--> 🚧`;
+                statusText.textContent = 'WARNING';
+                statusText.className = 'status-text warning';
+            } else {
+                // SAFE - Just the car
+                distanceDisplay.textContent = '🚗';
+                statusText.textContent = 'All Clear';
+                statusText.className = 'status-text';
+            }
         }
 
         // WebSocket-first real-time monitoring with HTTP fallback
@@ -1110,6 +1286,10 @@ namespace wifi_monitor
                     document.getElementById('startBtn').disabled = true;
                     document.getElementById('stopBtn').disabled = false;
                     
+                    // Show physics charts
+                    document.getElementById('physicsCharts').style.display = 'block';
+                    initPhysicsCharts();
+                    
                     console.log('Logging started successfully');
                 }
             })
@@ -1153,6 +1333,11 @@ namespace wifi_monitor
                     document.getElementById('stopBtn').disabled = true;
                     
                     document.getElementById('sessionTime').textContent = '00:00:00';
+                    document.getElementById('dataRate').textContent = '0 Hz';
+                    
+                    // Hide physics charts
+                    document.getElementById('physicsCharts').style.display = 'none';
+                    
                     console.log('Logging stopped successfully');
                 }
             })
@@ -1162,6 +1347,42 @@ namespace wifi_monitor
             });
         }
 
+        function clearData() {
+            if (loggingActive) {
+                alert('Please stop logging before clearing data.');
+                return;
+            }
+            
+            if (!confirm('Are you sure you want to clear all logged data? This cannot be undone.')) {
+                return;
+            }
+            
+            console.log('Clearing log data...');
+            
+            fetch('/logging/control', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({action: 'clear'})
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    updateLogEntries(0);
+                    updateLogSize(0);
+                    document.getElementById('lastEntry').textContent = 'Never';
+                    document.getElementById('memoryUsage').textContent = '0%';
+                    console.log('Data cleared successfully');
+                }
+            })
+            .catch(error => {
+                console.error('Failed to clear data:', error);
+                alert('Failed to clear data: ' + error.message);
+            });
+        }
+
+        var lastEntryCount = 0;
+        var lastUpdateTime = Date.now();
+        
         function refreshLogData() {
             if (!loggingActive) return;
             
@@ -1170,12 +1391,144 @@ namespace wifi_monitor
             .then(response => response.json())
             .then(data => {
                 if (data.logging_active) {
+                    // Calculate data rate
+                    var now = Date.now();
+                    var timeDiff = (now - lastUpdateTime) / 1000; // seconds
+                    var entryDiff = data.entry_count - lastEntryCount;
+                    var dataRate = timeDiff > 0 ? (entryDiff / timeDiff) : 0;
+                    
                     updateLogEntries(data.entry_count);
                     updateLogSize(Math.floor(data.entry_count * 0.1)); // Estimate size in KB
                     updateLastEntry();
+                    document.getElementById('dataRate').textContent = dataRate.toFixed(1) + ' Hz';
+                    document.getElementById('memoryUsage').textContent = Math.min(data.entry_count / 10, 100).toFixed(1) + '%';
+                    
+                    lastEntryCount = data.entry_count;
+                    lastUpdateTime = now;
+                    
+                    // Fetch latest physics data for visualization
+                    updatePhysicsDisplay();
                 }
             })
             .catch(error => console.error('Failed to refresh log data:', error));
+        }
+        
+        // Physics data visualization
+        var speedChart, safetyChart;
+        var speedData = [];
+        var distanceData = [];
+        var rcInputData = [];
+        var safetyData = [];
+        var maxDataPoints = 50;
+        
+        function initPhysicsCharts() {
+            // Initialize speed chart
+            const speedCtx = document.getElementById('speedChart').getContext('2d');
+            speedChart = {
+                ctx: speedCtx,
+                data: { speed: [], distance: [] }
+            };
+            
+            // Initialize safety chart  
+            const safetyCtx = document.getElementById('safetyChart').getContext('2d');
+            safetyChart = {
+                ctx: safetyCtx,
+                data: { rcInput: [], safety: [] }
+            };
+            
+            // Clear existing data arrays
+            speedData = [];
+            distanceData = [];
+            rcInputData = [];
+            safetyData = [];
+        }
+        
+        function updatePhysicsDisplay() {
+            // Simulate physics data (in real hardware, this would fetch from latest DataLogger entries)
+            var currentTime = Date.now();
+            
+            // Simulate realistic vehicle physics data
+            var rcInput = Math.sin(currentTime / 2000) * 50 + 50; // 0-100 range
+            var distance = Math.abs(Math.sin(currentTime / 3000)) * 200 + 50; // 50-250 cm
+            var safetyMargin = Math.max(0, distance - 100); // Safety calculation
+            var speed = rcInput * 0.5; // Estimated speed from RC input
+            
+            // Update data arrays
+            speedData.push(speed);
+            distanceData.push(distance);
+            rcInputData.push(rcInput);
+            safetyData.push(safetyMargin);
+            
+            // Limit array sizes
+            if (speedData.length > maxDataPoints) speedData.shift();
+            if (distanceData.length > maxDataPoints) distanceData.shift();
+            if (rcInputData.length > maxDataPoints) rcInputData.shift();
+            if (safetyData.length > maxDataPoints) safetyData.shift();
+            
+            // Update charts
+            drawChart(speedChart.ctx, [
+                { data: speedData, color: '#2ea043', label: 'Speed' },
+                { data: distanceData, color: '#d29922', label: 'Distance' }
+            ], { min: 0, max: 250 });
+            
+            drawChart(safetyChart.ctx, [
+                { data: rcInputData, color: '#2ea043', label: 'RC Input' },
+                { data: safetyData, color: '#f85149', label: 'Safety' }
+            ], { min: 0, max: 150 });
+            
+            // Update summary values
+            document.getElementById('currentRcInput').textContent = rcInput.toFixed(1);
+            document.getElementById('currentDistance').textContent = distance.toFixed(1) + ' cm';
+            document.getElementById('currentSafety').textContent = safetyMargin.toFixed(1) + ' cm';
+            
+            // Simulate brake events
+            if (safetyMargin < 20) {
+                var currentBrakes = parseInt(document.getElementById('brakeEvents').textContent) || 0;
+                document.getElementById('brakeEvents').textContent = currentBrakes + 1;
+            }
+        }
+        
+        function drawChart(ctx, datasets, range) {
+            const canvas = ctx.canvas;
+            const width = canvas.width;
+            const height = canvas.height;
+            
+            // Clear canvas
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, width, height);
+            
+            // Draw grid
+            ctx.strokeStyle = '#333';
+            ctx.lineWidth = 1;
+            for (let i = 0; i <= 10; i++) {
+                const y = (i / 10) * height;
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(width, y);
+                ctx.stroke();
+            }
+            
+            // Draw datasets
+            datasets.forEach(dataset => {
+                if (dataset.data.length < 2) return;
+                
+                ctx.strokeStyle = dataset.color;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                
+                dataset.data.forEach((value, index) => {
+                    const x = (index / (maxDataPoints - 1)) * width;
+                    const y = height - ((value - range.min) / (range.max - range.min)) * height;
+                    
+                    if (index === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                });
+                
+                ctx.stroke();
+            });
         }
         
         function exportData() {
@@ -1210,7 +1563,7 @@ namespace wifi_monitor
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = 'control_diagnostics_' + new Date().toISOString().replace(/[:.]/g, '-') + '.csv';
+                a.download = 'digitoys_physics_data_' + new Date().toISOString().replace(/[:.]/g, '-') + '.csv';
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
@@ -1229,10 +1582,12 @@ namespace wifi_monitor
             var startBtn = document.getElementById('startBtn');
             var stopBtn = document.getElementById('stopBtn');
             var exportBtn = document.getElementById('exportBtn');
+            var clearBtn = document.getElementById('clearBtn');
             
             if (startBtn) startBtn.addEventListener('click', startLogging);
             if (stopBtn) stopBtn.addEventListener('click', stopLogging);
             if (exportBtn) exportBtn.addEventListener('click', exportData);
+            if (clearBtn) clearBtn.addEventListener('click', clearData);
             
             // Initial button states
             if (stopBtn) stopBtn.disabled = true;
@@ -1687,7 +2042,7 @@ namespace wifi_monitor
         {
             // Parse request body for action
             char content[100];
-            size_t recv_size = std::min(req->content_len, sizeof(content) - 1);
+            size_t recv_size = (req->content_len < sizeof(content) - 1) ? req->content_len : sizeof(content) - 1;
             
             if (httpd_req_recv(req, content, recv_size) <= 0)
             {

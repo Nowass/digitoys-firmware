@@ -86,9 +86,11 @@ namespace digitoys::datalogger
 
     esp_err_t DataLogger::start()
     {
-        if (getState() != digitoys::core::ComponentState::INITIALIZED)
+        auto current_state = getState();
+        if (current_state != digitoys::core::ComponentState::INITIALIZED && 
+            current_state != digitoys::core::ComponentState::STOPPED)
         {
-            ESP_LOGW(TAG, "Not initialized or already running");
+            ESP_LOGW(TAG, "Cannot start from current state: %d", static_cast<int>(current_state));
             return ESP_ERR_INVALID_STATE;
         }
 
@@ -113,9 +115,30 @@ namespace digitoys::datalogger
             }
         }
 
-        // Reset counters
+        // Reset counters and clear old data for fresh start
+        collected_data_.clear();
         current_memory_usage_ = 0;
         entry_count_ = 0;
+
+        // Restart collection timer if we have data sources
+        if (!data_sources_.empty() && collection_timer_)
+        {
+            // Use minimum sample rate from all sources
+            uint32_t min_rate = UINT32_MAX;
+            for (const auto &pair : data_sources_)
+            {
+                DataSourceConfig src_config = pair.second->getSourceConfig();
+                min_rate = std::min(min_rate, src_config.sample_rate_ms);
+            }
+
+            esp_err_t ret = esp_timer_start_periodic(collection_timer_, min_rate * 1000);
+            if (ret != ESP_OK)
+            {
+                ESP_LOGE(TAG, "Failed to restart collection timer: %s", esp_err_to_name(ret));
+                return ret;
+            }
+            ESP_LOGI(TAG, "Collection timer restarted with rate: %lu ms", min_rate);
+        }
 
         setState(digitoys::core::ComponentState::RUNNING);
         ESP_LOGI(TAG, "DataLogger started successfully");

@@ -1189,33 +1189,33 @@ namespace wifi_monitor
                     return;
                 }
                 
-                // Fetch the actual log data
+                // Fetch the actual log data as CSV
                 return fetch('/logging/data');
             })
-            .then(response => response.json())
-            .then(data => {
-                if (data.entries && data.entries.length > 0) {
-                    // Convert to CSV format
-                    const csvHeader = 'Timestamp,Cached_Duty,Direct_Duty,Current_Input,Distance,Brake_Distance,Warning_Distance,Cached_Throttle,Throttle_Pressed,Driving_Forward,Wants_Reverse,Obstacle_Detected,Warning_Active\\n';
-                    const csvRows = data.entries.map(entry => 
-                        `${entry.timestamp},${entry.cached_duty},${entry.direct_duty},${entry.current_input},${entry.distance},${entry.brake_distance},${entry.warning_distance},${entry.cached_throttle},${entry.throttle_pressed},${entry.driving_forward},${entry.wants_reverse},${entry.obstacle_detected},${entry.warning_active}`
-                    ).join('\\n');
-                    
-                    const csvContent = csvHeader + csvRows;
-                    const blob = new Blob([csvContent], { type: 'text/csv' });
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `digitoys_log_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.csv`;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    window.URL.revokeObjectURL(url);
-                    
-                    console.log(`Exported ${data.entries.length} log entries`);
-                } else {
-                    alert('No data available for export.');
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Failed to fetch data: ' + response.statusText);
                 }
+                return response.text(); // Get as text since it's CSV now
+            })
+            .then(csvData => {
+                if (!csvData || csvData.length === 0) {
+                    alert('No data available to export');
+                    return;
+                }
+                
+                // Create and download CSV file
+                const blob = new Blob([csvData], { type: 'text/csv' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'control_diagnostics_' + new Date().toISOString().replace(/[:.]/g, '-') + '.csv';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+                
+                console.log('CSV file downloaded successfully');
             })
             .catch(error => {
                 console.error('Failed to export data:', error);
@@ -1478,11 +1478,21 @@ namespace wifi_monitor
 
     std::string WifiMonitor::getDiagnosticDataJSON() const
     {
+        DIGITOYS_LOGI("WifiMonitor", "Starting getDiagnosticDataJSON");
+        
         std::string json = "{\"entries\":[";
+        size_t entry_count = 0;
         
         if (xSemaphoreTake(diagnostic_mutex_, pdMS_TO_TICKS(100)) == pdTRUE)
         {
-            for (size_t i = 0; i < diagnostic_log_.size(); ++i)
+            entry_count = diagnostic_log_.size();
+            DIGITOYS_LOGI("WifiMonitor", "Processing %d diagnostic entries", entry_count);
+            
+            // Limit the number of entries to prevent memory issues
+            size_t max_entries = 1000;  // Limit to 1000 entries
+            size_t actual_entries = std::min(entry_count, max_entries);
+            
+            for (size_t i = 0; i < actual_entries; ++i)
             {
                 const auto &entry = diagnostic_log_[i];
                 if (i > 0) json += ",";
@@ -1502,32 +1512,95 @@ namespace wifi_monitor
                 json += "\"obstacle_detected\":" + std::string(entry.obstacle_detected ? "true" : "false") + ",";
                 json += "\"warning_active\":" + std::string(entry.warning_active ? "true" : "false");
                 json += "}";
+                
+                // Yield periodically to prevent watchdog timeouts
+                if (i % 100 == 0) {
+                    vTaskDelay(1);  // Brief yield every 100 entries
+                }
             }
             xSemaphoreGive(diagnostic_mutex_);
+            
+            DIGITOYS_LOGI("WifiMonitor", "Processed %d entries, JSON size: %d bytes", actual_entries, json.length());
+        }
+        else
+        {
+            DIGITOYS_LOGE("WifiMonitor", "Failed to acquire mutex for diagnostic data");
         }
         
-        json += "],\"count\":" + std::to_string(diagnostic_log_.size()) + "}";
+        json += "],\"count\":" + std::to_string(entry_count) + "}";
+        
+        DIGITOYS_LOGI("WifiMonitor", "getDiagnosticDataJSON completed, final size: %d bytes", json.length());
         return json;
+    }
+
+    std::string WifiMonitor::getDiagnosticDataCSV() const
+    {
+        DIGITOYS_LOGI("WifiMonitor", "Starting getDiagnosticDataCSV");
+        
+        // CSV header
+        std::string csv = "timestamp,cached_duty,direct_duty,current_input,distance,brake_distance,warning_distance,cached_throttle,throttle_pressed,driving_forward,wants_reverse,obstacle_detected,warning_active\n";
+        
+        size_t entry_count = 0;
+        
+        if (xSemaphoreTake(diagnostic_mutex_, pdMS_TO_TICKS(100)) == pdTRUE)
+        {
+            entry_count = diagnostic_log_.size();
+            DIGITOYS_LOGI("WifiMonitor", "Processing %d diagnostic entries for CSV", entry_count);
+            
+            for (size_t i = 0; i < entry_count; ++i)
+            {
+                const auto &entry = diagnostic_log_[i];
+                
+                csv += std::to_string(entry.timestamp) + ",";
+                csv += std::to_string(entry.cached_duty) + ",";
+                csv += std::to_string(entry.direct_duty) + ",";
+                csv += std::to_string(entry.current_input) + ",";
+                csv += std::to_string(entry.distance) + ",";
+                csv += std::to_string(entry.brake_distance) + ",";
+                csv += std::to_string(entry.warning_distance) + ",";
+                csv += (entry.cached_throttle ? "1" : "0") + std::string(",");
+                csv += (entry.throttle_pressed ? "1" : "0") + std::string(",");
+                csv += (entry.driving_forward ? "1" : "0") + std::string(",");
+                csv += (entry.wants_reverse ? "1" : "0") + std::string(",");
+                csv += (entry.obstacle_detected ? "1" : "0") + std::string(",");
+                csv += (entry.warning_active ? "1" : "0") + std::string("\n");
+                
+                // Yield periodically to prevent watchdog timeouts
+                if (i % 100 == 0) {
+                    vTaskDelay(1);  // Brief yield every 100 entries
+                }
+            }
+            xSemaphoreGive(diagnostic_mutex_);
+            
+            DIGITOYS_LOGI("WifiMonitor", "Processed %d entries, CSV size: %d bytes", entry_count, csv.length());
+        }
+        else
+        {
+            DIGITOYS_LOGE("WifiMonitor", "Failed to acquire mutex for diagnostic CSV data");
+        }
+        
+        DIGITOYS_LOGI("WifiMonitor", "getDiagnosticDataCSV completed, final size: %d bytes", csv.length());
+        return csv;
     }
 
     // HTTP handlers for diagnostic logging
     esp_err_t WifiMonitor::addCorsHeaders(httpd_req_t *req)
-{
-    esp_err_t ret = ESP_OK;
-    
-    ret |= httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-    ret |= httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    ret |= httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type");
-    
-    return ret;
-}
+    {
+        esp_err_t ret = ESP_OK;
+        
+        ret |= httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+        ret |= httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        ret |= httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type");
+        
+        return ret;
+    }
 
-esp_err_t WifiMonitor::loggingControlHandler(httpd_req_t *req)
+    esp_err_t WifiMonitor::loggingControlHandler(httpd_req_t *req)
     {
         if (!instance_) return ESP_ERR_INVALID_STATE;
 
         // Add CORS headers
-        instance_->addCorsHeaders(req);
+        addCorsHeaders(req);
 
         if (req->method == HTTP_POST)
         {
@@ -1594,13 +1667,48 @@ esp_err_t WifiMonitor::loggingControlHandler(httpd_req_t *req)
     {
         if (!instance_) return ESP_ERR_INVALID_STATE;
 
-        // Add CORS headers
-        instance_->addCorsHeaders(req);
+        DIGITOYS_LOGI("WifiMonitor", "loggingDataHandler called");
 
-        httpd_resp_set_type(req, "application/json");
-        
-        std::string json_data = instance_->getDiagnosticDataJSON();
-        httpd_resp_send(req, json_data.c_str(), json_data.length());
+        // Add CORS headers
+        addCorsHeaders(req);
+
+        // Check query parameter for format (default to csv for efficiency)
+        char query[100];
+        bool use_json = false;
+        if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
+            char format[10];
+            if (httpd_query_key_value(query, "format", format, sizeof(format)) == ESP_OK) {
+                if (strcmp(format, "json") == 0) {
+                    use_json = true;
+                }
+            }
+        }
+
+        if (use_json) {
+            // JSON format
+            httpd_resp_set_type(req, "application/json");
+            std::string json_data = instance_->getDiagnosticDataJSON();
+            DIGITOYS_LOGI("WifiMonitor", "About to send JSON response, size: %d bytes", json_data.length());
+            
+            if (json_data.length() > 80000) {  // 80KB limit for JSON
+                DIGITOYS_LOGW("WifiMonitor", "JSON data too large (%d bytes), sending error", json_data.length());
+                const char* error_response = "{\"error\":\"Data too large, use CSV format\",\"entries\":0}";
+                httpd_resp_send(req, error_response, strlen(error_response));
+            } else {
+                httpd_resp_send(req, json_data.c_str(), json_data.length());
+                DIGITOYS_LOGI("WifiMonitor", "JSON response sent successfully");
+            }
+        } else {
+            // CSV format (default, much more compact)
+            httpd_resp_set_type(req, "text/csv");
+            httpd_resp_set_hdr(req, "Content-Disposition", "attachment; filename=\"diagnostic_log.csv\"");
+            
+            std::string csv_data = instance_->getDiagnosticDataCSV();
+            DIGITOYS_LOGI("WifiMonitor", "About to send CSV response, size: %d bytes", csv_data.length());
+            
+            httpd_resp_send(req, csv_data.c_str(), csv_data.length());
+            DIGITOYS_LOGI("WifiMonitor", "CSV response sent successfully");
+        }
 
         return ESP_OK;
     }

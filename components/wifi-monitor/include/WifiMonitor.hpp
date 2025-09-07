@@ -151,6 +151,12 @@ namespace wifi_monitor
         std::string getDiagnosticDataJSON() const;
 
         /**
+         * @brief Get logged diagnostic data as CSV
+         * @return CSV string with diagnostic entries
+         */
+        std::string getDiagnosticDataCSV() const;
+
+        /**
          * @brief Clear all logged diagnostic data
          */
         void clearDiagnosticData();

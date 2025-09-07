@@ -10,7 +10,11 @@ The `data-logger` component provides a generic framework for collecting and mana
 - ✅ **Configurable**: Enable/disable via configuration, memory limits, auto-flush intervals
 - ✅ **Memory Management**: Tracks memory usage and enforces limits
 - ✅ **Auto-flush**: Periodic data flushing with configurable intervals
-- 🔄 **Extensible**: Ready for data source registration and specialized analyzers
+- ✅ **IDataSource Interface**: Generic interface for any component to provide data
+- ✅ **Data Source Registry**: Register/unregister sources dynamically
+- ✅ **Test Data Source**: Synthetic data generation for validation and testing
+- ✅ **Demo Framework**: Complete example showing integration patterns
+- 🔄 **Extensible**: Ready for specialized analyzers
 
 ## Architecture
 
@@ -34,6 +38,8 @@ struct DataLoggerConfig {
 ```
 
 ## Usage
+
+### Basic DataLogger Usage
 
 ```cpp
 #include "DataLogger.hpp"
@@ -62,6 +68,40 @@ logger.stop();
 logger.shutdown();
 ```
 
+### Test Data Source Usage
+
+```cpp
+#include "TestDataSource.hpp"
+#include "DataLogger.hpp"
+
+// Create test data source
+auto testSource = std::make_shared<TestDataSource>("TestSensor", 250, true);
+testSource->setDataPattern(TestDataSource::DataPattern::SINUSOIDAL);
+testSource->setSimulateFailures(false);
+
+// Register with logger
+logger.registerDataSource(testSource);
+
+// Data will be collected automatically
+// Check statistics: testSource->getDataPointsGenerated()
+```
+
+### Complete Demo Example
+
+```cpp
+#include "DataLoggerDemo.hpp"
+
+// Initialize and start demo
+DataLoggerDemo::initialize();
+DataLoggerDemo::start();
+
+// Monitor progress
+DataLoggerDemo::printStatus();
+
+// Stop demo
+DataLoggerDemo::stop();
+```
+
 ## Dependencies
 
 - `digitoys-core`: ComponentBase interface and common utilities
@@ -80,11 +120,16 @@ The component is automatically built when included in the project dependencies. 
 - Memory tracking
 - Auto-flush mechanism
 
-**Phase 2: Data Source Interface** 🔄 **NEXT**
+**Phase 2: Data Source Interface** ✅ **COMPLETED**
 - IDataSource interface
 - Source registration
 - Generic data collection
 
-**Phase 3: Specialized Analyzers** 📋 **PLANNED**
+**Phase 3: Test & Validation** ✅ **COMPLETED**
+- TestDataSource implementation
+- Demo framework
+- Synthetic data patterns
+
+**Phase 4: Specialized Analyzers** 📋 **NEXT**
 - PhysicsAnalyzer for control system data
 - Custom analyzer framework

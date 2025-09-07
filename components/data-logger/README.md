@@ -1,0 +1,90 @@
+# Data Logger Component
+
+## Overview
+
+The `data-logger` component provides a generic framework for collecting and managing development data from various sources across the digitoys system. It follows the digitoys-core framework patterns and is designed specifically for development builds to avoid impacting production performance.
+
+## Features
+
+- ✅ **Component Lifecycle**: Full ComponentBase implementation with proper state management
+- ✅ **Configurable**: Enable/disable via configuration, memory limits, auto-flush intervals
+- ✅ **Memory Management**: Tracks memory usage and enforces limits
+- ✅ **Auto-flush**: Periodic data flushing with configurable intervals
+- 🔄 **Extensible**: Ready for data source registration and specialized analyzers
+
+## Architecture
+
+```
+DataLogger (ComponentBase)
+├── Configuration Management
+├── Memory Tracking
+├── Auto-flush Timer
+└── [Future] Data Source Registry
+```
+
+## Configuration
+
+```cpp
+struct DataLoggerConfig {
+    bool enabled = false;                    // Enable/disable logging
+    uint32_t max_entries = 1000;           // Maximum number of entries  
+    uint32_t flush_interval_ms = 5000;     // Auto-flush interval
+    size_t max_memory_kb = 64;             // Maximum memory usage in KB
+};
+```
+
+## Usage
+
+```cpp
+#include "DataLogger.hpp"
+
+// Create logger with custom config
+DataLoggerConfig config = {
+    .enabled = true,
+    .max_entries = 500,
+    .flush_interval_ms = 3000,
+    .max_memory_kb = 32
+};
+
+DataLogger logger(config);
+
+// Standard component lifecycle
+logger.initialize();
+logger.start();
+
+// Use logger...
+// logger.isEnabled()
+// logger.getMemoryUsage()
+// logger.getEntryCount()
+
+// Cleanup
+logger.stop();
+logger.shutdown();
+```
+
+## Dependencies
+
+- `digitoys-core`: ComponentBase interface and common utilities
+- `freertos`: Timer management
+- `esp_timer`: High-resolution timers for auto-flush
+
+## Build Integration
+
+The component is automatically built when included in the project dependencies. No additional configuration required.
+
+## Development Status
+
+**Phase 1: Core Framework** ✅ **COMPLETED**
+- Basic component structure
+- Configuration system
+- Memory tracking
+- Auto-flush mechanism
+
+**Phase 2: Data Source Interface** 🔄 **NEXT**
+- IDataSource interface
+- Source registration
+- Generic data collection
+
+**Phase 3: Specialized Analyzers** 📋 **PLANNED**
+- PhysicsAnalyzer for control system data
+- Custom analyzer framework

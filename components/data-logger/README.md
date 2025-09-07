@@ -13,7 +13,9 @@ The `data-logger` component provides a generic framework for collecting and mana
 - ✅ **IDataSource Interface**: Generic interface for any component to provide data
 - ✅ **Data Source Registry**: Register/unregister sources dynamically
 - ✅ **Test Data Source**: Synthetic data generation for validation and testing
-- ✅ **Demo Framework**: Complete example showing integration patterns
+- ✅ **Control System Integration**: Real physics data from ControlTask
+- ✅ **Physics Analysis**: Braking behavior analysis and event detection
+- ✅ **Demo Framework**: Complete examples showing integration patterns
 - 🔄 **Extensible**: Ready for specialized analyzers
 
 ## Architecture
@@ -86,20 +88,28 @@ logger.registerDataSource(testSource);
 // Check statistics: testSource->getDataPointsGenerated()
 ```
 
-### Complete Demo Example
+### Control System Integration
 
 ```cpp
-#include "DataLoggerDemo.hpp"
+#include "ControlTaskDataSource.hpp"
+#include "AdvancedDataLoggerDemo.hpp"
 
-// Initialize and start demo
-DataLoggerDemo::initialize();
-DataLoggerDemo::start();
+// Create control system data source
+control::ControlTask* controlTask = ...; // Your ControlTask instance
+auto controlSource = std::make_shared<ControlTaskDataSource>(controlTask, 150, true);
+controlSource->setCapturePhysicsData(true);
+controlSource->setSpeedThreshold(0.05f);
 
-// Monitor progress
-DataLoggerDemo::printStatus();
+// Register with logger
+logger.registerDataSource(controlSource);
 
-// Stop demo
-DataLoggerDemo::stop();
+// Or use the advanced demo with real control data
+AdvancedDataLoggerDemo::initialize(controlTask);
+AdvancedDataLoggerDemo::start();
+
+// Monitor physics analysis
+AdvancedDataLoggerDemo::printStatus();
+std::string report = AdvancedDataLoggerDemo::generatePhysicsReport();
 ```
 
 ## Dependencies
@@ -130,6 +140,16 @@ The component is automatically built when included in the project dependencies. 
 - Demo framework
 - Synthetic data patterns
 
-**Phase 4: Specialized Analyzers** 📋 **NEXT**
-- PhysicsAnalyzer for control system data
-- Custom analyzer framework
+**Phase 4: Control System Integration** ✅ **COMPLETED**
+- ControlTaskDataSource implementation
+- Real physics data collection from vehicle control system
+- Braking event detection and analysis
+- G-force and deceleration calculations
+- Emergency braking pattern recognition
+- Advanced demo with comprehensive reporting
+- Integration with existing ControlTask for real-time data
+
+**Phase 5: Specialized Analyzers** 📋 **NEXT**
+- PhysicsAnalyzer for detailed braking analysis
+- HTTP API integration for real-time access
+- Enhanced web dashboard for data visualization

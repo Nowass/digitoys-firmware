@@ -83,7 +83,7 @@ namespace digitoys::datalogger
          * @brief Get access to the underlying DataLogger instance
          * @return Pointer to DataLogger (nullptr if not initialized)
          */
-        DataLogger* getDataLogger() const;
+        DataLogger *getDataLogger() const;
 
     private:
         control::ControlTask *control_task_;

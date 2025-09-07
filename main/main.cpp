@@ -9,8 +9,9 @@
 #include "WifiMonitor.hpp" // Add our new component
 #include "SystemMonitor.hpp"
 #include "ControlTask.hpp"
-#include "DataLoggerService.hpp" // Add DataLogger integration
-#include "PhysicsAnalyzer.hpp"   // Add Physics Analysis
+#include "DataLoggerService.hpp"  // Add DataLogger integration
+#include "PhysicsAnalyzer.hpp"    // Add Physics Analysis
+#include "PhysicsAnalyzerAPI.hpp" // Add HTTP API integration
 
 static const char *TAG = "APP_MAIN";
 using namespace lidar;
@@ -55,17 +56,30 @@ extern "C" void app_main()
     // --- Physics Analyzer for Advanced Analysis ---
     auto analyzer_config = digitoys::datalogger::PhysicsAnalyzer::AnalyzerConfig{
         .enabled = true,
-        .analysis_interval_ms = 10000,  // Analyze every 10 seconds
-        .data_window_size = 50,         // Analyze last 50 entries
+        .analysis_interval_ms = 10000,     // Analyze every 10 seconds
+        .data_window_size = 50,            // Analyze last 50 entries
         .emergency_decel_threshold = 4.0f, // 4 m/s² for emergency detection
         .safety_margin_critical = 15.0f,   // 15cm critical margin
         .safety_margin_warning = 40.0f     // 40cm warning margin
     };
-    
+
     static digitoys::datalogger::PhysicsAnalyzer physics_analyzer(data_logger.getDataLogger(), analyzer_config);
     ESP_ERROR_CHECK(physics_analyzer.initialize());
     ESP_ERROR_CHECK(physics_analyzer.start());
     ESP_LOGI(TAG, "Physics analyzer initialized and started");
+
+    // --- HTTP API Integration ---
+    static digitoys::datalogger::PhysicsAnalyzerAPI physics_api(&physics_analyzer);
+    httpd_handle_t server_handle = wifi_mon.getHttpServerHandle();
+    if (server_handle)
+    {
+        ESP_ERROR_CHECK(physics_api.registerEndpoints(server_handle));
+        ESP_LOGI(TAG, "Physics analysis HTTP API endpoints registered");
+    }
+    else
+    {
+        ESP_LOGW(TAG, "HTTP server not available for API registration");
+    }
 
     // Print initial status after all services are running
     vTaskDelay(pdMS_TO_TICKS(3000)); // Wait for initial data collection

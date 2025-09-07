@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Physics API Test</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            background-color: #0d1117;
+            color: #c9d1d9;
+            margin: 20px;
+        }
+
+        .endpoint {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            background-color: #161b22;
+        }
+
+        .endpoint h3 {
+            color: #2ea043;
+            margin-top: 0;
+        }
+
+        button {
+            background-color: #238636;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+
+        button:hover {
+            background-color: #2ea043;
+        }
+
+        pre {
+            background-color: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 4px;
+            padding: 10px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .status {
+            color: #d29922;
+            font-weight: bold;
+        }
+
+        .error {
+            color: #f85149;
+        }
+
+        .success {
+            color: #2ea043;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Physics Analyzer API Test</h1>
+    <p>Test all physics analysis API endpoints that export CSV data.</p>
+
+    <div class="endpoint">
+        <h3>Analysis Results CSV</h3>
+        <p>Get physics analysis results in CSV format</p>
+        <button onclick="testEndpoint('/api/physics/analysis.csv', 'analysis-result')">Test Endpoint</button>
+        <div id="analysis-status" class="status"></div>
+        <pre id="analysis-result"></pre>
+    </div>
+
+    <div class="endpoint">
+        <h3>Braking Events CSV</h3>
+        <p>Get detected braking events in CSV format</p>
+        <button onclick="testEndpoint('/api/physics/braking-events.csv', 'braking-result')">Test Endpoint</button>
+        <div id="braking-status" class="status"></div>
+        <pre id="braking-result"></pre>
+    </div>
+
+    <div class="endpoint">
+        <h3>Real-time Metrics CSV</h3>
+        <p>Get current real-time physics metrics in CSV format</p>
+        <button onclick="testEndpoint('/api/physics/realtime.csv', 'realtime-result')">Test Endpoint</button>
+        <div id="realtime-status" class="status"></div>
+        <pre id="realtime-result"></pre>
+    </div>
+
+    <div class="endpoint">
+        <h3>Analysis Configuration</h3>
+        <p>Get current analysis configuration parameters</p>
+        <button onclick="testEndpoint('/api/physics/config', 'config-result')">Test Endpoint</button>
+        <div id="config-status" class="status"></div>
+        <pre id="config-result"></pre>
+    </div>
+
+    <div class="endpoint">
+        <h3>Analysis Status</h3>
+        <p>Get current analysis system status</p>
+        <button onclick="testEndpoint('/api/physics/status', 'status-result')">Test Endpoint</button>
+        <div id="status-status" class="status"></div>
+        <pre id="status-result"></pre>
+    </div>
+
+    <script>
+        async function testEndpoint(endpoint, resultId) {
+            const statusId = resultId.replace('-result', '-status');
+            const statusElement = document.getElementById(statusId);
+            const resultElement = document.getElementById(resultId);
+
+            statusElement.textContent = 'Testing...';
+            statusElement.className = 'status';
+            resultElement.textContent = '';
+
+            try {
+                const response = await fetch(endpoint);
+
+                if (response.ok) {
+                    const data = await response.text();
+                    statusElement.textContent = `✓ Success (${response.status})`;
+                    statusElement.className = 'status success';
+                    resultElement.textContent = data;
+                } else {
+                    statusElement.textContent = `✗ HTTP Error ${response.status}`;
+                    statusElement.className = 'status error';
+                    resultElement.textContent = await response.text();
+                }
+            } catch (error) {
+                statusElement.textContent = `✗ Network Error: ${error.message}`;
+                statusElement.className = 'status error';
+                resultElement.textContent = error.toString();
+            }
+        }
+
+        // Test all endpoints on page load
+        window.addEventListener('load', function () {
+            const endpoints = [
+                ['/api/physics/status', 'status-result'],
+                ['/api/physics/config', 'config-result']
+            ];
+
+            // Test status and config first (these should always work)
+            endpoints.forEach(([endpoint, resultId], index) => {
+                setTimeout(() => testEndpoint(endpoint, resultId), index * 1000);
+            });
+        });
+    </script>
+</body>
+
+</html>

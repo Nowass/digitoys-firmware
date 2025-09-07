@@ -244,17 +244,19 @@ namespace digitoys::datalogger
         entries.emplace_back("is_obstacle_state", snapshot.is_obstacle_state, timestamp);
         entries.emplace_back("is_warning_state", snapshot.is_warning_state, timestamp);
         entries.emplace_back("driving_forward", snapshot.driving_forward, timestamp);
-        
+
         // Event counters (only when they change)
         static uint32_t last_brake_events = 0;
         static uint32_t last_warning_events = 0;
-        
-        if (brake_events_ != last_brake_events) {
+
+        if (brake_events_ != last_brake_events)
+        {
             entries.emplace_back("brake_events", brake_events_, timestamp);
             last_brake_events = brake_events_;
         }
-        
-        if (warning_events_ != last_warning_events) {
+
+        if (warning_events_ != last_warning_events)
+        {
             entries.emplace_back("warning_events", warning_events_, timestamp);
             last_warning_events = warning_events_;
         }
@@ -265,27 +267,31 @@ namespace digitoys::datalogger
                                                uint64_t timestamp)
     {
         // Only log physics data when there's significant activity (reduced from 7 to 3-4 entries)
-        
+
         // Always log safety margin (critical for safety analysis)
         float safety_margin = snapshot.distance - snapshot.brake_distance;
         entries.emplace_back("safety_margin", safety_margin, timestamp);
-        
+
         // Only log deltas when there's meaningful change
-        if (abs(snapshot.speed_delta) > 0.01f) {
+        if (abs(snapshot.speed_delta) > 0.01f)
+        {
             entries.emplace_back("speed_delta", snapshot.speed_delta, timestamp);
         }
-        
-        if (abs(snapshot.distance_delta) > 1.0f) { // Only log if distance changes > 1cm
+
+        if (abs(snapshot.distance_delta) > 1.0f)
+        { // Only log if distance changes > 1cm
             entries.emplace_back("distance_delta", snapshot.distance_delta, timestamp);
         }
-        
+
         // Only log deceleration during significant braking events
-        if (abs(snapshot.deceleration) > 0.5f) { // Only log significant deceleration
+        if (abs(snapshot.deceleration) > 0.5f)
+        { // Only log significant deceleration
             entries.emplace_back("deceleration", snapshot.deceleration, timestamp);
         }
-        
+
         // Only log time to impact when approaching obstacles
-        if (snapshot.time_to_impact > 0.0f && snapshot.time_to_impact < 10.0f) {
+        if (snapshot.time_to_impact > 0.0f && snapshot.time_to_impact < 10.0f)
+        {
             entries.emplace_back("time_to_impact", snapshot.time_to_impact, timestamp);
         }
     }

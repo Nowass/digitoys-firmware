@@ -371,11 +371,13 @@ namespace digitoys::datalogger
 
     std::vector<DataEntry> DataLogger::getCollectedData(size_t max_entries) const
     {
-        if (collected_data_.empty()) {
+        if (collected_data_.empty())
+        {
             return std::vector<DataEntry>();
         }
 
-        if (max_entries == 0 || max_entries >= collected_data_.size()) {
+        if (max_entries == 0 || max_entries >= collected_data_.size())
+        {
             // Return all data
             return collected_data_;
         }

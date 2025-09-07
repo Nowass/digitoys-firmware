@@ -122,9 +122,9 @@ namespace wifi_monitor
          * @param warning_active Warning condition flag
          */
         void logControlDiagnostics(float cached_duty, float direct_duty, float current_input,
-                                  float distance, float brake_distance, float warning_distance,
-                                  bool cached_throttle, bool throttle_pressed, bool driving_forward,
-                                  bool wants_reverse, bool obstacle_detected, bool warning_active);
+                                   float distance, float brake_distance, float warning_distance,
+                                   bool cached_throttle, bool throttle_pressed, bool driving_forward,
+                                   bool wants_reverse, bool obstacle_detected, bool warning_active);
 
         /**
          * @brief Start diagnostic logging
@@ -161,6 +161,12 @@ namespace wifi_monitor
          */
         void clearDiagnosticData();
 
+        /**
+         * @brief Get HTTP server handle for external endpoint registration
+         * @return HTTP server handle (nullptr if not started)
+         */
+        httpd_handle_t getHttpServerHandle() const { return server_; }
+
     private:
         // WiFi and Network setup
         esp_err_t setupWifiAP();
@@ -187,7 +193,7 @@ namespace wifi_monitor
         static esp_err_t websocketHandler(httpd_req_t *req);
         static esp_err_t loggingControlHandler(httpd_req_t *req);
         static esp_err_t loggingDataHandler(httpd_req_t *req);
-        
+
         // Helper methods
         static esp_err_t addCorsHeaders(httpd_req_t *req);
         bool isWebSocketFrame(httpd_req_t *req);

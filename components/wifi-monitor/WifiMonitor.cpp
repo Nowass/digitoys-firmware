@@ -1,5 +1,6 @@
 #include "WifiMonitor.hpp"
 #include "SystemMonitor.hpp"
+#include "DataLoggerService.hpp"  // Add DataLogger integration
 #include <esp_wifi.h>
 #include <esp_event.h>
 #include <esp_netif.h>
@@ -1438,32 +1439,40 @@ namespace wifi_monitor
 
     esp_err_t WifiMonitor::startLogging()
     {
-        if (xSemaphoreTake(diagnostic_mutex_, pdMS_TO_TICKS(100)) == pdTRUE)
+        if (data_logger_service_)
         {
-            logging_active_ = true;
-            diagnostic_log_.clear(); // Start fresh
-            xSemaphoreGive(diagnostic_mutex_);
-            DIGITOYS_LOGI("WifiMonitor", "Diagnostic logging started");
+            auto* data_logger = data_logger_service_->getDataLogger();
+            data_logger->start();
+            DIGITOYS_LOGI("WifiMonitor", "DataLogger started");
             return ESP_OK;
         }
-        return ESP_ERR_TIMEOUT;
+        
+        DIGITOYS_LOGE("WifiMonitor", "DataLogger service not available");
+        return ESP_ERR_INVALID_STATE;
     }
 
     esp_err_t WifiMonitor::stopLogging()
     {
-        if (xSemaphoreTake(diagnostic_mutex_, pdMS_TO_TICKS(100)) == pdTRUE)
+        if (data_logger_service_)
         {
-            logging_active_ = false;
-            xSemaphoreGive(diagnostic_mutex_);
-            DIGITOYS_LOGI("WifiMonitor", "Diagnostic logging stopped");
+            auto* data_logger = data_logger_service_->getDataLogger();
+            data_logger->stop();
+            DIGITOYS_LOGI("WifiMonitor", "DataLogger stopped");
             return ESP_OK;
         }
-        return ESP_ERR_TIMEOUT;
+        
+        DIGITOYS_LOGE("WifiMonitor", "DataLogger service not available");
+        return ESP_ERR_INVALID_STATE;
     }
 
     bool WifiMonitor::isLoggingActive() const
     {
-        return logging_active_;
+        if (data_logger_service_)
+        {
+            auto* data_logger = data_logger_service_->getDataLogger();
+            return data_logger->isRunning();
+        }
+        return false;
     }
 
     void WifiMonitor::clearDiagnosticData()
@@ -1583,6 +1592,78 @@ namespace wifi_monitor
         return csv;
     }
 
+    std::string WifiMonitor::getDataLoggerJSON() const
+    {
+        DIGITOYS_LOGI("WifiMonitor", "Starting getDataLoggerJSON");
+        
+        if (!data_logger_service_)
+        {
+            DIGITOYS_LOGE("WifiMonitor", "DataLogger service not available");
+            return "{\"error\":\"DataLogger service not available\",\"entries\":[],\"count\":0}";
+        }
+
+        auto* data_logger = data_logger_service_->getDataLogger();
+        auto collected_data = data_logger->getCollectedData();
+        
+        std::string json = "{\"entries\":[";
+        
+        for (size_t i = 0; i < collected_data.size(); ++i)
+        {
+            const auto& entry = collected_data[i];
+            
+            if (i > 0) json += ",";
+            json += "{";
+            json += "\"key\":\"" + entry.key + "\",";
+            json += "\"value\":\"" + entry.value + "\",";
+            json += "\"timestamp\":" + std::to_string(entry.timestamp_us);
+            json += "}";
+            
+            // Yield periodically for large datasets
+            if (i % 100 == 0) {
+                vTaskDelay(1);
+            }
+        }
+        
+        json += "],\"count\":" + std::to_string(collected_data.size()) + "}";
+        
+        DIGITOYS_LOGI("WifiMonitor", "getDataLoggerJSON completed, final size: %d bytes", json.length());
+        return json;
+    }
+
+    std::string WifiMonitor::getDataLoggerCSV() const
+    {
+        DIGITOYS_LOGI("WifiMonitor", "Starting getDataLoggerCSV");
+        
+        if (!data_logger_service_)
+        {
+            DIGITOYS_LOGE("WifiMonitor", "DataLogger service not available");
+            return "error\nDataLogger service not available\n";
+        }
+
+        auto* data_logger = data_logger_service_->getDataLogger();
+        auto collected_data = data_logger->getCollectedData();
+        
+        // CSV header
+        std::string csv = "timestamp_us,key,value\n";
+        
+        for (size_t i = 0; i < collected_data.size(); ++i)
+        {
+            const auto& entry = collected_data[i];
+            
+            csv += std::to_string(entry.timestamp_us) + ",";
+            csv += entry.key + ",";
+            csv += entry.value + "\n";
+            
+            // Yield periodically for large datasets
+            if (i % 100 == 0) {
+                vTaskDelay(1);
+            }
+        }
+        
+        DIGITOYS_LOGI("WifiMonitor", "getDataLoggerCSV completed, final size: %d bytes", csv.length());
+        return csv;
+    }
+
     // HTTP handlers for diagnostic logging
     esp_err_t WifiMonitor::addCorsHeaders(httpd_req_t *req)
     {
@@ -1628,7 +1709,17 @@ namespace wifi_monitor
             }
             else if (action.find("clear") != std::string::npos)
             {
-                instance_->clearDiagnosticData();
+                if (instance_->data_logger_service_)
+                {
+                    auto* data_logger = instance_->data_logger_service_->getDataLogger();
+                    result = data_logger->clear();
+                    DIGITOYS_LOGI("WifiMonitor", "DataLogger cleared");
+                }
+                else
+                {
+                    DIGITOYS_LOGE("WifiMonitor", "DataLogger service not available for clear");
+                    result = ESP_ERR_INVALID_STATE;
+                }
             }
             else
             {
@@ -1654,7 +1745,14 @@ namespace wifi_monitor
             
             std::string response = "{";
             response += "\"logging_active\":" + std::string(instance_->isLoggingActive() ? "true" : "false");
-            response += ",\"entry_count\":" + std::to_string(instance_->diagnostic_log_.size());
+            
+            size_t entry_count = 0;
+            if (instance_->data_logger_service_)
+            {
+                auto* data_logger = instance_->data_logger_service_->getDataLogger();
+                entry_count = data_logger->getEntryCount();
+            }
+            response += ",\"entry_count\":" + std::to_string(entry_count);
             response += "}";
             
             httpd_resp_send(req, response.c_str(), response.length());
@@ -1687,7 +1785,7 @@ namespace wifi_monitor
         if (use_json) {
             // JSON format
             httpd_resp_set_type(req, "application/json");
-            std::string json_data = instance_->getDiagnosticDataJSON();
+            std::string json_data = instance_->getDataLoggerJSON();
             DIGITOYS_LOGI("WifiMonitor", "About to send JSON response, size: %d bytes", json_data.length());
             
             if (json_data.length() > 80000) {  // 80KB limit for JSON
@@ -1701,9 +1799,9 @@ namespace wifi_monitor
         } else {
             // CSV format (default, much more compact)
             httpd_resp_set_type(req, "text/csv");
-            httpd_resp_set_hdr(req, "Content-Disposition", "attachment; filename=\"diagnostic_log.csv\"");
+            httpd_resp_set_hdr(req, "Content-Disposition", "attachment; filename=\"physics_data.csv\"");
             
-            std::string csv_data = instance_->getDiagnosticDataCSV();
+            std::string csv_data = instance_->getDataLoggerCSV();
             DIGITOYS_LOGI("WifiMonitor", "About to send CSV response, size: %d bytes", csv_data.length());
             
             httpd_resp_send(req, csv_data.c_str(), csv_data.length());

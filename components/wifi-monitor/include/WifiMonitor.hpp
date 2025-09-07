@@ -174,6 +174,18 @@ namespace wifi_monitor
         std::string getDiagnosticDataCSV() const;
 
         /**
+         * @brief Get DataLogger physics data as JSON
+         * @return JSON string with physics data entries
+         */
+        std::string getDataLoggerJSON() const;
+
+        /**
+         * @brief Get DataLogger physics data as CSV
+         * @return CSV string with physics data entries
+         */
+        std::string getDataLoggerCSV() const;
+
+        /**
          * @brief Clear all logged diagnostic data
          */
         void clearDiagnosticData();

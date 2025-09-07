@@ -16,17 +16,6 @@ extern "C" void app_main()
 {
     ESP_LOGI(TAG, "Starting DigiToys firmware with unified configuration system");
 
-    // --- WiFi Monitor (TEST) ---
-    static wifi_monitor::WifiMonitor wifi_mon;
-    ESP_ERROR_CHECK(wifi_mon.initialize());
-    ESP_ERROR_CHECK(wifi_mon.start());
-    ESP_LOGI(TAG, "WiFi Monitor (TEST) initialized and started");
-
-    while (true)
-    {
-        vTaskDelay(pdMS_TO_TICKS(digitoys::constants::timing::CONTROL_LOOP_DELAY_MS));
-    }
-
     // --- LiDAR hardware setup using configuration factory ---
     auto lidar_config = lidar::LiDARConfig::createProductionConfig();
     static lidar::LiDAR lidar{lidar_config};
@@ -42,24 +31,18 @@ extern "C" void app_main()
     ESP_ERROR_CHECK(pwm_driver.start());
     ESP_LOGI(TAG, "PWM passthrough initialized and started");
 
-    // --- Telemetry monitor ---
-    static monitor::Monitor mon;
-    ESP_ERROR_CHECK(mon.initialize());
-    ESP_ERROR_CHECK(mon.start());
-    ESP_LOGI(TAG, "Monitor initialized and started");
+    // --- WiFi Monitor (replaces original monitor) ---
+    static wifi_monitor::WifiMonitor wifi_mon;
+    ESP_ERROR_CHECK(wifi_mon.initialize());
+    ESP_ERROR_CHECK(wifi_mon.start());
+    ESP_LOGI(TAG, "WiFi Monitor initialized and started");
 
-    // --- System monitor ---
-    static monitor::SystemMonitor sys_mon;
-    ESP_ERROR_CHECK(sys_mon.initialize());
-    ESP_ERROR_CHECK(sys_mon.start());
-    ESP_LOGI(TAG, "System monitor initialized and started");
-
-    // --- Launch ControlTask ---
-    static control::ControlContext ctx = {&lidar, &pwm_driver, &mon};
+    // --- Launch ControlTask with WiFi Monitor ---
+    static control::ControlContext ctx = {&lidar, &pwm_driver, &wifi_mon};
     static control::ControlTask control_task(&ctx);
     ESP_ERROR_CHECK(control_task.initialize());
     ESP_ERROR_CHECK(control_task.start());
-    ESP_LOGI(TAG, "Control task initialized and started");
+    ESP_LOGI(TAG, "Control task initialized and started with WiFi Monitor");
 
     // Keep app_main idle
     vTaskDelete(nullptr);

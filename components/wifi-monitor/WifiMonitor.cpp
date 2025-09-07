@@ -442,7 +442,7 @@ namespace wifi_monitor
         uint32_t total_time = 0;
         UBaseType_t count = uxTaskGetSystemState(status, MAX_TASKS, &total_time);
         uint32_t idle_time = 0;
-        
+
         for (UBaseType_t i = 0; i < count; ++i)
         {
             if (strstr(status[i].pcTaskName, "IDLE") != nullptr)
@@ -450,7 +450,7 @@ namespace wifi_monitor
                 idle_time += status[i].ulRunTimeCounter;
             }
         }
-        
+
         float load = 0.0f;
         if (prev_total != 0 && total_time > prev_total)
         {
@@ -485,10 +485,10 @@ namespace wifi_monitor
         // Get real system information
         static uint32_t prev_idle_time = 0;
         static uint32_t prev_total_time = 0;
-        
+
         // Calculate real CPU usage using FreeRTOS statistics
         float cpu_usage = calculate_cpu_load(prev_idle_time, prev_total_time);
-        
+
         // Get real heap information
         size_t total_heap = heap_caps_get_total_size(MALLOC_CAP_DEFAULT);
         size_t free_heap = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
@@ -504,7 +504,7 @@ namespace wifi_monitor
         cJSON_AddNumberToObject(root, "cpu", cpu_usage);
         cJSON_AddNumberToObject(root, "total_heap", (double)total_heap);
         cJSON_AddNumberToObject(root, "free_heap", (double)free_heap);
-        
+
         // Add update counter for debugging
         static uint32_t counter = 0;
         counter++;
@@ -1173,32 +1173,32 @@ namespace wifi_monitor
         if (ws_pkt.type == HTTPD_WS_TYPE_TEXT)
         {
             DIGITOYS_LOGI("WifiMonitor", "Received WebSocket text: %.*s", ws_pkt.len, (char *)ws_pkt.payload);
-            
+
             // Send system data as JSON response
             cJSON *root = cJSON_CreateObject();
-            
+
             // Get real system data (reuse logic from systemGetHandler)
             static uint32_t prev_idle_time = 0;
             static uint32_t prev_total_time = 0;
             static uint32_t ws_counter = 0;
             ws_counter++;
-            
+
             float cpu_usage = calculate_cpu_load(prev_idle_time, prev_total_time);
             size_t total_heap = heap_caps_get_total_size(MALLOC_CAP_DEFAULT);
             size_t free_heap = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
-            
+
             cJSON_AddNumberToObject(root, "cpu", cpu_usage);
             cJSON_AddNumberToObject(root, "total_heap", (double)total_heap);
             cJSON_AddNumberToObject(root, "free_heap", (double)free_heap);
             cJSON_AddNumberToObject(root, "counter", ws_counter);
             cJSON_AddStringToObject(root, "type", "websocket");
-            
+
             // Add some task info
             const int MAX_TASKS = 5; // Limit for WebSocket to reduce payload
             TaskStatus_t status[MAX_TASKS];
             uint32_t total_time = 0;
             UBaseType_t count = uxTaskGetSystemState(status, MAX_TASKS, &total_time);
-            
+
             cJSON *tasks = cJSON_CreateArray();
             for (UBaseType_t i = 0; i < count && i < MAX_TASKS; ++i)
             {
@@ -1208,10 +1208,10 @@ namespace wifi_monitor
                 cJSON_AddItemToArray(tasks, task);
             }
             cJSON_AddItemToObject(root, "tasks", tasks);
-            
+
             char *json_string = cJSON_PrintUnformatted(root);
             cJSON_Delete(root);
-            
+
             if (json_string)
             {
                 httpd_ws_frame_t response = {
@@ -1219,12 +1219,11 @@ namespace wifi_monitor
                     .fragmented = false,
                     .type = HTTPD_WS_TYPE_TEXT,
                     .payload = (uint8_t *)json_string,
-                    .len = strlen(json_string)
-                };
-                
+                    .len = strlen(json_string)};
+
                 ret = httpd_ws_send_frame(req, &response);
                 free(json_string);
-                
+
                 if (ret != ESP_OK)
                 {
                     DIGITOYS_LOGE("WifiMonitor", "httpd_ws_send_frame failed with %d", ret);
@@ -1239,8 +1238,7 @@ namespace wifi_monitor
                 .fragmented = false,
                 .type = HTTPD_WS_TYPE_PONG,
                 .payload = nullptr,
-                .len = 0
-            };
+                .len = 0};
             ret = httpd_ws_send_frame(req, &pong);
         }
         else if (ws_pkt.type == HTTPD_WS_TYPE_CLOSE)

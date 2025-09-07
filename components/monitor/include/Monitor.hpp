@@ -5,6 +5,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <ComponentBase.hpp>
+#include <IMonitor.hpp>
 #include <Constants.hpp>
 
 namespace monitor
@@ -17,7 +18,7 @@ namespace monitor
         float speed_est = 0.0f;
     };
 
-    class Monitor : public digitoys::core::ComponentBase
+    class Monitor : public digitoys::core::ComponentBase, public digitoys::core::IMonitor
     {
     public:
         Monitor() : ComponentBase("Monitor") {}

@@ -7,6 +7,7 @@
 #include <freertos/semphr.h>
 #include <freertos/task.h>
 #include <ComponentBase.hpp>
+#include <IMonitor.hpp>
 #include <Constants.hpp>
 #include <vector>
 
@@ -39,7 +40,7 @@ namespace wifi_monitor
      * - Thread-safe telemetry data access
      * - Integrated with digitoys-core framework
      */
-    class WifiMonitor : public digitoys::core::ComponentBase
+    class WifiMonitor : public digitoys::core::ComponentBase, public digitoys::core::IMonitor
     {
     public:
         /**

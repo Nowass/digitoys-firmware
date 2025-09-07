@@ -6,22 +6,21 @@
 #include "SpeedController.hpp"
 #include "adas_pwm_driver.hpp"
 #include "LiDAR.hpp"
-#include "Monitor.hpp"
 #include <ComponentBase.hpp>
+#include <IMonitor.hpp>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
 namespace control
 {
-
     /**
-     * @brief Control task context - same as original but in namespace
+     * @brief Control task context with monitor interface
      */
     struct ControlContext
     {
         lidar::LiDAR *lidar;
         adas::PwmDriver *pwm_driver;
-        monitor::Monitor *monitor;
+        digitoys::core::IMonitor *monitor;
     };
 
     /**

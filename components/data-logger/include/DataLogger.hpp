@@ -101,6 +101,13 @@ namespace digitoys::datalogger
          */
         esp_err_t collectFromSources();
 
+        /**
+         * @brief Get a copy of collected data for analysis
+         * @param max_entries Maximum number of recent entries to return (0 = all)
+         * @return Vector of recent data entries
+         */
+        std::vector<DataEntry> getCollectedData(size_t max_entries = 0) const;
+
     private:
         static const char *TAG;
 

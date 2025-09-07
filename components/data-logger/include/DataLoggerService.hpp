@@ -79,6 +79,12 @@ namespace digitoys::datalogger
          */
         size_t getMemoryUsage() const;
 
+        /**
+         * @brief Get access to the underlying DataLogger instance
+         * @return Pointer to DataLogger (nullptr if not initialized)
+         */
+        DataLogger* getDataLogger() const;
+
     private:
         control::ControlTask *control_task_;
         bool physics_analysis_enabled_;

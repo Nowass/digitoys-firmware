@@ -226,4 +226,9 @@ namespace digitoys::datalogger
         return 0;
     }
 
+    DataLogger* DataLoggerService::getDataLogger() const
+    {
+        return logger_.get();
+    }
+
 } // namespace digitoys::datalogger

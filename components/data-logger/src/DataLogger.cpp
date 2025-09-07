@@ -369,6 +369,22 @@ namespace digitoys::datalogger
         return doDataCollection();
     }
 
+    std::vector<DataEntry> DataLogger::getCollectedData(size_t max_entries) const
+    {
+        if (collected_data_.empty()) {
+            return std::vector<DataEntry>();
+        }
+
+        if (max_entries == 0 || max_entries >= collected_data_.size()) {
+            // Return all data
+            return collected_data_;
+        }
+
+        // Return the most recent max_entries
+        size_t start_index = collected_data_.size() - max_entries;
+        return std::vector<DataEntry>(collected_data_.begin() + start_index, collected_data_.end());
+    }
+
     void DataLogger::collectionTimerCallback(void *arg)
     {
         DataLogger *logger = static_cast<DataLogger *>(arg);

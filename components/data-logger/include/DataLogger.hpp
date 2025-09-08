@@ -18,6 +18,8 @@ namespace digitoys::datalogger
         uint32_t max_entries = 1000;       ///< Maximum number of entries
         uint32_t flush_interval_ms = 5000; ///< Auto-flush interval
         size_t max_memory_kb = 64;         ///< Maximum memory usage in KB
+        bool monitoring_mode = true;       ///< If true, use circular buffer for dashboard monitoring
+        size_t monitoring_buffer_size = 20; ///< Number of entries to keep in monitoring mode
     };
 
     /**
@@ -102,6 +104,19 @@ namespace digitoys::datalogger
         esp_err_t collectFromSources();
 
         /**
+         * @brief Enable/disable monitoring mode
+         * @param enable If true, switch to circular buffer monitoring mode
+         * @return ESP_OK on success
+         */
+        esp_err_t setMonitoringMode(bool enable);
+
+        /**
+         * @brief Check if currently in monitoring mode
+         * @return true if in monitoring mode, false if in full logging mode
+         */
+        bool isMonitoringMode() const { return current_monitoring_mode_; }
+
+        /**
          * @brief Get a copy of collected data for analysis
          * @param max_entries Maximum number of recent entries to return (0 = all)
          * @return Vector of recent data entries
@@ -152,6 +167,9 @@ namespace digitoys::datalogger
          * @brief Calculate memory usage for a data entry
          */
         size_t calculateEntrySize(const DataEntry &entry) const;
+
+        // Current operating mode
+        bool current_monitoring_mode_; ///< Current monitoring mode state
     };
 
 } // namespace digitoys::datalogger

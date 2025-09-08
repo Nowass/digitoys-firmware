@@ -8,12 +8,13 @@ namespace digitoys::datalogger
     const char *DataLogger::TAG = "DataLogger";
 
     DataLogger::DataLogger(const DataLoggerConfig &config)
-        : ComponentBase("DataLogger"), config_(config)
+        : ComponentBase("DataLogger"), config_(config), current_monitoring_mode_(config.monitoring_mode)
     {
-        ESP_LOGI(TAG, "DataLogger created (enabled: %s, max_entries: %lu, max_memory: %zu KB)",
+        ESP_LOGI(TAG, "DataLogger created (enabled: %s, max_entries: %lu, max_memory: %zu KB, monitoring: %s)",
                  config_.enabled ? "true" : "false",
                  config_.max_entries,
-                 config_.max_memory_kb);
+                 config_.max_memory_kb,
+                 current_monitoring_mode_ ? "true" : "false");
     }
 
     DataLogger::~DataLogger()
@@ -479,6 +480,26 @@ namespace digitoys::datalogger
     size_t DataLogger::calculateEntrySize(const DataEntry &entry) const
     {
         return sizeof(DataEntry) + entry.key.size() + entry.value.size();
+    }
+
+    esp_err_t DataLogger::setMonitoringMode(bool enable)
+    {
+        if (current_monitoring_mode_ == enable)
+        {
+            ESP_LOGD(TAG, "Already in %s mode", enable ? "monitoring" : "logging");
+            return ESP_OK;
+        }
+
+        ESP_LOGI(TAG, "Switching to %s mode", enable ? "monitoring" : "logging");
+        current_monitoring_mode_ = enable;
+
+        // Clear existing data when switching modes
+        collected_data_.clear();
+        current_memory_usage_ = 0;
+        entry_count_ = 0;
+
+        ESP_LOGI(TAG, "Mode switched successfully, data buffer cleared");
+        return ESP_OK;
     }
 
 } // namespace digitoys::datalogger

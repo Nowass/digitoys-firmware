@@ -1,6 +1,7 @@
 #include "WifiMonitor.hpp"
 #include "SystemMonitor.hpp"
 #include "DataLoggerService.hpp"  // Add DataLogger integration
+#include "DataLogger.hpp"         // For direct DataLogger method access
 #include <esp_wifi.h>
 #include <esp_event.h>
 #include <esp_netif.h>
@@ -1797,9 +1798,20 @@ namespace wifi_monitor
         if (data_logger_service_)
         {
             auto* data_logger = data_logger_service_->getDataLogger();
-            data_logger->start();
-            DIGITOYS_LOGI("WifiMonitor", "DataLogger started");
-            return ESP_OK;
+            if (data_logger)
+            {
+                // Switch from monitoring mode to full logging mode
+                esp_err_t ret = data_logger->setMonitoringMode(false);
+                if (ret == ESP_OK)
+                {
+                    DIGITOYS_LOGI("WifiMonitor", "DataLogger switched to full logging mode");
+                }
+                else
+                {
+                    DIGITOYS_LOGE("WifiMonitor", "Failed to switch DataLogger to logging mode: %s", esp_err_to_name(ret));
+                }
+                return ret;
+            }
         }
         
         DIGITOYS_LOGE("WifiMonitor", "DataLogger service not available");
@@ -1811,9 +1823,20 @@ namespace wifi_monitor
         if (data_logger_service_)
         {
             auto* data_logger = data_logger_service_->getDataLogger();
-            data_logger->stop();
-            DIGITOYS_LOGI("WifiMonitor", "DataLogger stopped");
-            return ESP_OK;
+            if (data_logger)
+            {
+                // Switch from full logging mode back to monitoring mode
+                esp_err_t ret = data_logger->setMonitoringMode(true);
+                if (ret == ESP_OK)
+                {
+                    DIGITOYS_LOGI("WifiMonitor", "DataLogger switched back to monitoring mode");
+                }
+                else
+                {
+                    DIGITOYS_LOGE("WifiMonitor", "Failed to switch DataLogger to monitoring mode: %s", esp_err_to_name(ret));
+                }
+                return ret;
+            }
         }
         
         DIGITOYS_LOGE("WifiMonitor", "DataLogger service not available");
@@ -1825,7 +1848,11 @@ namespace wifi_monitor
         if (data_logger_service_)
         {
             auto* data_logger = data_logger_service_->getDataLogger();
-            return data_logger->isRunning();
+            if (data_logger)
+            {
+                // Logging is active when DataLogger is running AND not in monitoring mode
+                return data_logger->isRunning() && !data_logger->isMonitoringMode();
+            }
         }
         return false;
     }

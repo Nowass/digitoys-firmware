@@ -10,7 +10,7 @@ namespace digitoys::datalogger
     DataLogger::DataLogger(const DataLoggerConfig &config)
         : ComponentBase("DataLogger"), config_(config), current_monitoring_mode_(config.monitoring_mode)
     {
-        ESP_LOGI(TAG, "DataLogger created (enabled: %s, max_entries: %lu, max_memory: %zu KB, monitoring: %s)",
+        ESP_LOGI(TAG, "DataLogger created (enabled: %s, max_entries: %lu, max_memory: %lu KB, monitoring: %s)",
                  config_.enabled ? "true" : "false",
                  config_.max_entries,
                  config_.max_memory_kb,
@@ -488,6 +488,13 @@ namespace digitoys::datalogger
 
         ESP_LOGI(TAG, "Switching to %s mode", enable ? "monitoring" : "logging");
         current_monitoring_mode_ = enable;
+
+        // Notify all data sources about the mode change
+        for (const auto &pair : data_sources_)
+        {
+            DataSourcePtr source = pair.second;
+            source->onModeChanged(enable);
+        }
 
         // Clear existing data when switching modes
         collected_data_.clear();

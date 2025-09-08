@@ -93,6 +93,12 @@ namespace digitoys::datalogger
          * @return ESP_OK on success, error code on failure
          */
         virtual esp_err_t onUnregistered() { return ESP_OK; }
+
+        /**
+         * @brief Called when logging mode changes (monitoring vs full logging)
+         * @param is_monitoring true for monitoring mode, false for full logging
+         */
+        virtual void onModeChanged(bool is_monitoring) { (void)is_monitoring; /* Default: do nothing */ }
     };
 
     /**

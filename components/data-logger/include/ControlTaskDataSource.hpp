@@ -49,6 +49,7 @@ namespace digitoys::datalogger
         bool isReady() const override;
         esp_err_t onRegistered() override;
         esp_err_t onUnregistered() override;
+        void onModeChanged(bool is_monitoring) override;
 
         /**
          * @brief Set whether to capture detailed physics data
@@ -72,6 +73,18 @@ namespace digitoys::datalogger
         void getStatistics(uint32_t &total_samples, uint32_t &physics_samples,
                            uint32_t &brake_events, uint32_t &warning_events) const;
 
+        /**
+         * @brief Enable/disable light monitoring mode for reduced data collection
+         * @param enable If true, collect minimal data for monitoring. If false, collect full data for logging.
+         */
+        void setLightMode(bool enable) { light_monitoring_mode_ = enable; }
+
+        /**
+         * @brief Check if currently in light monitoring mode
+         * @return true if in light mode, false if in full logging mode
+         */
+        bool isLightMode() const { return light_monitoring_mode_; }
+
     private:
         static const char *TAG;
 
@@ -81,6 +94,7 @@ namespace digitoys::datalogger
         // Configuration
         bool capture_physics_data_ = true;
         float speed_threshold_ = 0.1f; // Minimum speed to collect data
+        bool light_monitoring_mode_ = true; // Start in monitoring mode by default
 
         // Statistics
         uint32_t total_samples_ = 0;
@@ -157,6 +171,16 @@ namespace digitoys::datalogger
         void addBasicControlData(std::vector<DataEntry> &entries,
                                  const ControlDataSnapshot &snapshot,
                                  uint64_t timestamp);
+
+        /**
+         * @brief Add essential control data for monitoring mode (minimal data)
+         * @param entries Vector to add entries to
+         * @param snapshot Control data snapshot
+         * @param timestamp Current timestamp
+         */
+        void addEssentialControlData(std::vector<DataEntry> &entries,
+                                     const ControlDataSnapshot &snapshot,
+                                     uint64_t timestamp);
 
         /**
          * @brief Add physics analysis data entries

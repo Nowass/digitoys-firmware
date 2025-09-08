@@ -38,37 +38,57 @@ namespace digitoys::datalogger
         ControlDataSnapshot snapshot = captureControlState();
         uint64_t timestamp = getCurrentTimestamp();
 
-        // Check speed threshold - only collect data when moving or braking
-        if (snapshot.current_input < speed_threshold_ &&
-            !snapshot.is_obstacle_state &&
-            !snapshot.is_warning_state)
+        // In light monitoring mode, be more selective about what to collect
+        if (light_monitoring_mode_)
         {
-            ESP_LOGV(TAG, "Below speed threshold, skipping collection");
-            return ESP_OK;
+            // Only collect data during significant events or movement
+            if (snapshot.current_input < speed_threshold_ &&
+                !snapshot.is_obstacle_state &&
+                !snapshot.is_warning_state)
+            {
+                ESP_LOGV(TAG, "Light mode: Below speed threshold, skipping collection");
+                return ESP_OK;
+            }
+
+            // In light mode, collect essential data only (no physics calculations)
+            addEssentialControlData(entries, snapshot, timestamp);
         }
-
-        // Calculate physics data if enabled
-        if (capture_physics_data_)
+        else
         {
-            calculatePhysicsData(snapshot, timestamp);
-            physics_samples_++;
-        }
+            // Full logging mode: original behavior
+            // Check speed threshold - only collect data when moving or braking
+            if (snapshot.current_input < speed_threshold_ &&
+                !snapshot.is_obstacle_state &&
+                !snapshot.is_warning_state)
+            {
+                ESP_LOGV(TAG, "Below speed threshold, skipping collection");
+                return ESP_OK;
+            }
 
-        // Update event counters
-        updateEventCounters(snapshot);
+            // Calculate physics data if enabled
+            if (capture_physics_data_)
+            {
+                calculatePhysicsData(snapshot, timestamp);
+                physics_samples_++;
+            }
 
-        // Add data entries
-        addBasicControlData(entries, snapshot, timestamp);
+            // Update event counters
+            updateEventCounters(snapshot);
 
-        if (capture_physics_data_)
-        {
-            addPhysicsData(entries, snapshot, timestamp);
+            // Add full data set
+            addBasicControlData(entries, snapshot, timestamp);
+
+            if (capture_physics_data_)
+            {
+                addPhysicsData(entries, snapshot, timestamp);
+            }
         }
 
         total_samples_++;
 
-        ESP_LOGD(TAG, "Collected control data: speed=%.3f, distance=%.1fcm, brake_dist=%.1fcm, obstacle=%s",
-                 snapshot.current_input, snapshot.distance, snapshot.brake_distance,
+        ESP_LOGV(TAG, "Collected control data (%s): speed=%.3f, distance=%.1fcm, obstacle=%s",
+                 light_monitoring_mode_ ? "light" : "full",
+                 snapshot.current_input, snapshot.distance,
                  snapshot.is_obstacle_state ? "YES" : "NO");
 
         return ESP_OK;
@@ -262,6 +282,22 @@ namespace digitoys::datalogger
         }
     }
 
+    void ControlTaskDataSource::addEssentialControlData(std::vector<DataEntry> &entries,
+                                                        const ControlDataSnapshot &snapshot,
+                                                        uint64_t timestamp)
+    {
+        // Minimal data for monitoring mode (only 3-4 essential entries)
+        entries.emplace_back("rc_input", snapshot.current_input, timestamp);
+        entries.emplace_back("obstacle_distance", snapshot.distance, timestamp);
+        entries.emplace_back("is_obstacle_state", snapshot.is_obstacle_state, timestamp);
+        
+        // Only add warning state if it's active (reduces unnecessary data)
+        if (snapshot.is_warning_state)
+        {
+            entries.emplace_back("is_warning_state", snapshot.is_warning_state, timestamp);
+        }
+    }
+
     void ControlTaskDataSource::addPhysicsData(std::vector<DataEntry> &entries,
                                                const ControlDataSnapshot &snapshot,
                                                uint64_t timestamp)
@@ -294,6 +330,13 @@ namespace digitoys::datalogger
         {
             entries.emplace_back("time_to_impact", snapshot.time_to_impact, timestamp);
         }
+    }
+
+    void ControlTaskDataSource::onModeChanged(bool is_monitoring)
+    {
+        ESP_LOGI(TAG, "ControlTaskDataSource mode changed to: %s", 
+                 is_monitoring ? "monitoring" : "logging");
+        setLightMode(is_monitoring);
     }
 
 } // namespace digitoys::datalogger

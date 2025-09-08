@@ -773,6 +773,24 @@ namespace wifi_monitor
             background-color: #000;
             border: 1px solid #333;
         }
+        .chart-legend {
+            display: flex;
+            justify-content: center;
+            margin-top: 8px;
+            gap: 15px;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: #c9d1d9;
+        }
+        .legend-color {
+            width: 16px;
+            height: 2px;
+            border-radius: 1px;
+        }
         .physics-summary {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -922,10 +940,30 @@ namespace wifi_monitor
             <div class="chart-container">
                 <h3>Vehicle Speed & Distance</h3>
                 <canvas id="speedChart" width="280" height="160"></canvas>
+                <div class="chart-legend">
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: #2ea043;"></div>
+                        <span>Speed (km/h)</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: #d29922;"></div>
+                        <span>Distance (cm)</span>
+                    </div>
+                </div>
             </div>
             <div class="chart-container">
                 <h3>RC Input & Safety</h3>
                 <canvas id="safetyChart" width="280" height="160"></canvas>
+                <div class="chart-legend">
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: #2ea043;"></div>
+                        <span>RC Input (%)</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: #f85149;"></div>
+                        <span>Safety Margin (cm)</span>
+                    </div>
+                </div>
             </div>
         </div>
         <div class="physics-summary">
@@ -1336,8 +1374,8 @@ namespace wifi_monitor
                     document.getElementById('sessionTime').textContent = '00:00:00';
                     document.getElementById('dataRate').textContent = '0 Hz';
                     
-                    // Hide physics charts
-                    document.getElementById('physicsCharts').style.display = 'none';
+                    // Check if we have logged data to decide chart visibility
+                    updatePhysicsChartsVisibility();
                     
                     console.log('Logging stopped successfully');
                 }
@@ -1345,6 +1383,25 @@ namespace wifi_monitor
             .catch(error => {
                 console.error('Failed to stop logging:', error);
                 alert('Failed to stop logging: ' + error.message);
+            });
+        }
+
+        function updatePhysicsChartsVisibility() {
+            // Check current status to determine if we have logged data
+            fetch('/logging/control')
+            .then(response => response.json())
+            .then(data => {
+                const physicsCharts = document.getElementById('physicsCharts');
+                if (data.entry_count > 0) {
+                    // Show charts if we have logged data
+                    physicsCharts.style.display = 'block';
+                } else {
+                    // Hide charts if no logged data
+                    physicsCharts.style.display = 'none';
+                }
+            })
+            .catch(error => {
+                console.error('Failed to check data status for chart visibility:', error);
             });
         }
 
@@ -1372,6 +1429,10 @@ namespace wifi_monitor
                     updateLogSize(0);
                     document.getElementById('lastEntry').textContent = 'Never';
                     document.getElementById('memoryUsage').textContent = '0%';
+                    
+                    // Hide physics charts when data is cleared
+                    document.getElementById('physicsCharts').style.display = 'none';
+                    
                     console.log('Data cleared successfully');
                     alert('All logged data has been cleared successfully.');
                 } else {
@@ -1496,19 +1557,55 @@ namespace wifi_monitor
             const canvas = ctx.canvas;
             const width = canvas.width;
             const height = canvas.height;
+            const padding = 40; // Space for Y-axis labels
+            const chartWidth = width - padding;
+            const chartHeight = height - 20; // Space for bottom padding
             
             // Clear canvas
             ctx.fillStyle = '#000';
             ctx.fillRect(0, 0, width, height);
             
-            // Draw grid
-            ctx.strokeStyle = '#333';
-            ctx.lineWidth = 1;
-            for (let i = 0; i <= 10; i++) {
-                const y = (i / 10) * height;
+            // Draw Y-axis scale and labels
+            ctx.fillStyle = '#c9d1d9';
+            ctx.font = '10px Arial';
+            ctx.textAlign = 'right';
+            ctx.textBaseline = 'middle';
+            
+            const steps = 5;
+            for (let i = 0; i <= steps; i++) {
+                const value = range.min + (range.max - range.min) * (i / steps);
+                const y = chartHeight - (i / steps) * chartHeight + 10;
+                
+                // Draw tick mark
+                ctx.strokeStyle = '#333';
+                ctx.lineWidth = 1;
                 ctx.beginPath();
-                ctx.moveTo(0, y);
-                ctx.lineTo(width, y);
+                ctx.moveTo(padding - 5, y);
+                ctx.lineTo(padding, y);
+                ctx.stroke();
+                
+                // Draw label
+                ctx.fillText(value.toFixed(0), padding - 8, y);
+                
+                // Draw grid line
+                if (i > 0 && i < steps) {
+                    ctx.strokeStyle = '#222';
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(padding, y);
+                    ctx.lineTo(width, y);
+                    ctx.stroke();
+                }
+            }
+            
+            // Draw vertical grid lines
+            ctx.strokeStyle = '#222';
+            ctx.lineWidth = 1;
+            for (let i = 1; i < 10; i++) {
+                const x = padding + (i / 10) * chartWidth;
+                ctx.beginPath();
+                ctx.moveTo(x, 10);
+                ctx.lineTo(x, chartHeight + 10);
                 ctx.stroke();
             }
             
@@ -1521,8 +1618,8 @@ namespace wifi_monitor
                 ctx.beginPath();
                 
                 dataset.data.forEach((value, index) => {
-                    const x = (index / (maxDataPoints - 1)) * width;
-                    const y = height - ((value - range.min) / (range.max - range.min)) * height;
+                    const x = padding + (index / (maxDataPoints - 1)) * chartWidth;
+                    const y = (chartHeight + 10) - ((value - range.min) / (range.max - range.min)) * chartHeight;
                     
                     if (index === 0) {
                         ctx.moveTo(x, y);
@@ -1533,6 +1630,11 @@ namespace wifi_monitor
                 
                 ctx.stroke();
             });
+            
+            // Draw chart border
+            ctx.strokeStyle = '#555';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(padding, 10, chartWidth, chartHeight);
         }
         
         function exportData() {
@@ -1646,8 +1748,12 @@ namespace wifi_monitor
                 // Update last entry (if we have data)
                 if (data.entry_count > 0) {
                     document.getElementById('lastEntry').textContent = 'Recently';
+                    // Show physics charts if we have logged data
+                    document.getElementById('physicsCharts').style.display = 'block';
                 } else {
                     document.getElementById('lastEntry').textContent = 'Never';
+                    // Hide physics charts if no logged data
+                    document.getElementById('physicsCharts').style.display = 'none';
                 }
                 
                 console.log('Dashboard state restored successfully');

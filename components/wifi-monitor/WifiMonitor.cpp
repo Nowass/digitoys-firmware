@@ -1679,6 +1679,35 @@ namespace wifi_monitor
             cJSON_AddNumberToObject(root, "counter", ws_counter);
             cJSON_AddStringToObject(root, "type", "websocket");
 
+            // Add telemetry data for Vehicle Telemetry dashboard section
+            if (instance_->telemetry_mutex_ && xSemaphoreTake(instance_->telemetry_mutex_, pdMS_TO_TICKS(50)))
+            {
+                cJSON *telemetry = cJSON_CreateObject();
+                cJSON_AddBoolToObject(telemetry, "obstacle", instance_->telemetry_data_.obstacle);
+                cJSON_AddNumberToObject(telemetry, "distance", instance_->telemetry_data_.distance);
+                cJSON_AddNumberToObject(telemetry, "speed_est", instance_->telemetry_data_.speed_est);
+                cJSON_AddBoolToObject(telemetry, "warning", instance_->telemetry_data_.warning);
+                cJSON_AddNumberToObject(telemetry, "timestamp", instance_->telemetry_data_.timestamp);
+                
+                // Add RC input for dashboard display (duty cycle as percentage)
+                cJSON_AddNumberToObject(telemetry, "rc_input", instance_->telemetry_data_.speed_est * 100.0f);
+                
+                cJSON_AddItemToObject(root, "telemetry", telemetry);
+                xSemaphoreGive(instance_->telemetry_mutex_);
+            }
+            else
+            {
+                // Fallback: add empty telemetry object
+                cJSON *telemetry = cJSON_CreateObject();
+                cJSON_AddBoolToObject(telemetry, "obstacle", false);
+                cJSON_AddNumberToObject(telemetry, "distance", 0.0);
+                cJSON_AddNumberToObject(telemetry, "speed_est", 0.0);
+                cJSON_AddBoolToObject(telemetry, "warning", false);
+                cJSON_AddNumberToObject(telemetry, "timestamp", 0);
+                cJSON_AddNumberToObject(telemetry, "rc_input", 0.0);
+                cJSON_AddItemToObject(root, "telemetry", telemetry);
+            }
+
             // Add some task info
             const int MAX_TASKS = 5; // Limit for WebSocket to reduce payload
             TaskStatus_t status[MAX_TASKS];

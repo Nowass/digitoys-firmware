@@ -213,12 +213,30 @@ namespace digitoys::datalogger
 
     size_t DataLogger::getMemoryUsage() const
     {
-        return current_memory_usage_;
+        // Calculate actual memory usage from both storages
+        size_t total_memory = 0;
+        
+        for (const auto& entry : logged_data_) {
+            total_memory += calculateEntrySize(entry);
+        }
+        
+        for (const auto& entry : monitoring_data_) {
+            total_memory += calculateEntrySize(entry);
+        }
+        
+        return total_memory;
     }
 
     size_t DataLogger::getEntryCount() const
     {
-        return entry_count_;
+        // For status reporting, return logged data count (what's available for export)
+        return logged_data_.size();
+    }
+
+    size_t DataLogger::getTotalEntryCount() const
+    {
+        // Return total entries across all storages
+        return logged_data_.size() + monitoring_data_.size();
     }
 
     esp_err_t DataLogger::flush()
@@ -237,17 +255,15 @@ namespace digitoys::datalogger
             return ESP_OK;
         }
 
-        ESP_LOGI(TAG, "Clearing all data (entries: %zu, memory: %zu bytes)",
-                 entry_count_, current_memory_usage_);
+        ESP_LOGI(TAG, "Clearing all data (logged: %zu, monitoring: %zu, total memory: %zu bytes)",
+                 logged_data_.size(), monitoring_data_.size(), getMemoryUsage());
 
-        // Clear collected data
-        collected_data_.clear();
+        // Clear both data storages
+        logged_data_.clear();
+        monitoring_data_.clear();
+        collected_data_.clear();  // Legacy compatibility
 
-        // Reset counters
-        current_memory_usage_ = 0;
-        entry_count_ = 0;
-
-        ESP_LOGI(TAG, "Data cleared successfully");
+        ESP_LOGI(TAG, "All data cleared successfully");
         return ESP_OK;
     }
 
@@ -395,20 +411,48 @@ namespace digitoys::datalogger
 
     std::vector<DataEntry> DataLogger::getCollectedData(size_t max_entries) const
     {
-        if (collected_data_.empty())
+        // Return data from the appropriate storage based on current mode
+        if (current_monitoring_mode_) {
+            return getMonitoringData(max_entries);
+        } else {
+            return getLoggedData(max_entries);
+        }
+    }
+
+    std::vector<DataEntry> DataLogger::getLoggedData(size_t max_entries) const
+    {
+        if (logged_data_.empty())
         {
             return std::vector<DataEntry>();
         }
 
-        if (max_entries == 0 || max_entries >= collected_data_.size())
+        if (max_entries == 0 || max_entries >= logged_data_.size())
         {
-            // Return all data
-            return collected_data_;
+            // Return all logged data
+            return logged_data_;
         }
 
-        // Return the most recent max_entries
-        size_t start_index = collected_data_.size() - max_entries;
-        return std::vector<DataEntry>(collected_data_.begin() + start_index, collected_data_.end());
+        // Return the most recent max_entries from logged data
+        size_t start_index = logged_data_.size() - max_entries;
+        return std::vector<DataEntry>(logged_data_.begin() + start_index, logged_data_.end());
+    }
+
+    std::vector<DataEntry> DataLogger::getMonitoringData(size_t max_entries) const
+    {
+        if (monitoring_data_.empty())
+        {
+            return std::vector<DataEntry>();
+        }
+
+        if (max_entries == 0 || max_entries >= monitoring_data_.size())
+        {
+            // Return all monitoring data
+            return monitoring_data_;
+        }
+
+        // Return the most recent max_entries from monitoring data
+        size_t start_index = monitoring_data_.size() - max_entries;
+        return std::vector<DataEntry>(monitoring_data_.begin() + start_index, monitoring_data_.end());
     }
 
     void DataLogger::collectionTimerCallback(void *arg)
@@ -496,12 +540,17 @@ namespace digitoys::datalogger
             source->onModeChanged(enable);
         }
 
-        // Clear existing data when switching modes
-        collected_data_.clear();
-        current_memory_usage_ = 0;
-        entry_count_ = 0;
+        // When switching to monitoring mode, preserve logged data but clear monitoring buffer
+        if (enable) {
+            // Switching to monitoring mode - clear monitoring buffer but keep logged data
+            monitoring_data_.clear();
+            ESP_LOGI(TAG, "Switched to monitoring mode, logged data preserved (%zu entries)", logged_data_.size());
+        } else {
+            // Switching to logging mode - keep both storages
+            ESP_LOGI(TAG, "Switched to logging mode, continuing to collect data");
+        }
 
-        ESP_LOGI(TAG, "Mode switched successfully, data buffer cleared");
+        ESP_LOGI(TAG, "Mode switched successfully");
         return ESP_OK;
     }
 
@@ -512,43 +561,37 @@ namespace digitoys::datalogger
         
         for (const DataEntry &entry : entries)
         {
-            // Add the new entry
-            collected_data_.push_back(entry);
-            size_t entry_size = calculateEntrySize(entry);
-            current_memory_usage_ += entry_size;
-            entry_count_++;
+            // Add the new entry to monitoring buffer
+            monitoring_data_.push_back(entry);
 
             // If we exceed the monitoring buffer size, remove the oldest entry
-            if (collected_data_.size() > max_buffer_size)
+            if (monitoring_data_.size() > max_buffer_size)
             {
                 // Remove the first (oldest) entry
-                size_t removed_size = calculateEntrySize(collected_data_.front());
-                collected_data_.erase(collected_data_.begin());
-                current_memory_usage_ -= removed_size;
+                monitoring_data_.erase(monitoring_data_.begin());
                 
                 ESP_LOGV(TAG, "Monitoring buffer full, removed oldest entry (buffer size: %zu)", 
-                         collected_data_.size());
+                         monitoring_data_.size());
             }
         }
     }
 
     void DataLogger::addEntriesForLogging(const std::vector<DataEntry> &entries, const std::string &source_name)
     {
-        // In logging mode, we use the original memory limit checking
+        // In logging mode, we store data permanently for export
         for (const DataEntry &entry : entries)
         {
             size_t entry_size = calculateEntrySize(entry);
+            size_t current_total_memory = getMemoryUsage();
 
             if (!checkMemoryLimits() ||
-                (current_memory_usage_ + entry_size) > (config_.max_memory_kb * 1024))
+                (current_total_memory + entry_size) > (config_.max_memory_kb * 1024))
             {
                 ESP_LOGW(TAG, "Memory limit reached, skipping entry from '%s'", source_name.c_str());
                 break;
             }
 
-            collected_data_.push_back(entry);
-            current_memory_usage_ += entry_size;
-            entry_count_++;
+            logged_data_.push_back(entry);
         }
     }
 

@@ -60,10 +60,16 @@ namespace digitoys::datalogger
         size_t getMemoryUsage() const;
 
         /**
-         * @brief Get number of logged entries
-         * @return Number of entries
+         * @brief Get number of logged entries (available for export)
+         * @return Number of logged entries
          */
         size_t getEntryCount() const;
+
+        /**
+         * @brief Get total entry count across all storages
+         * @return Total number of entries
+         */
+        size_t getTotalEntryCount() const;
 
         /**
          * @brief Force flush all pending data
@@ -123,6 +129,20 @@ namespace digitoys::datalogger
          */
         std::vector<DataEntry> getCollectedData(size_t max_entries = 0) const;
 
+        /**
+         * @brief Get logged data from persistent storage (for export)
+         * @param max_entries Maximum number of entries to return (0 for all)
+         * @return Vector of logged data entries
+         */
+        std::vector<DataEntry> getLoggedData(size_t max_entries = 0) const;
+
+        /**
+         * @brief Get monitoring data from circular buffer (for telemetry)
+         * @param max_entries Maximum number of entries to return (0 for all)
+         * @return Vector of monitoring data entries
+         */
+        std::vector<DataEntry> getMonitoringData(size_t max_entries = 0) const;
+
     private:
         static const char *TAG;
 
@@ -135,7 +155,12 @@ namespace digitoys::datalogger
 
         // Data source management
         std::map<std::string, DataSourcePtr> data_sources_;
-        std::vector<DataEntry> collected_data_;
+        
+        // Separate data storage for different modes
+        std::vector<DataEntry> logged_data_;        // Persistent data from logging sessions
+        std::vector<DataEntry> monitoring_data_;    // Circular buffer for monitoring
+        std::vector<DataEntry> collected_data_;     // Legacy compatibility (points to active storage)
+        
         esp_timer_handle_t collection_timer_ = nullptr;
 
         /**

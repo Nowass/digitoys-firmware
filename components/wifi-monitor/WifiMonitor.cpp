@@ -1373,6 +1373,9 @@ namespace wifi_monitor
                     document.getElementById('lastEntry').textContent = 'Never';
                     document.getElementById('memoryUsage').textContent = '0%';
                     console.log('Data cleared successfully');
+                    alert('All logged data has been cleared successfully.');
+                } else {
+                    alert('Failed to clear data: ' + (data.error || 'Unknown error'));
                 }
             })
             .catch(error => {
@@ -1556,6 +1559,12 @@ namespace wifi_monitor
             .then(csvData => {
                 if (!csvData || csvData.length === 0) {
                     alert('No data available to export');
+                    return;
+                }
+                
+                // Check if the response is an error message
+                if (csvData.startsWith('error')) {
+                    alert('Export failed: ' + csvData.substring(6)); // Remove 'error\n' prefix
                     return;
                 }
                 
@@ -2052,7 +2061,15 @@ namespace wifi_monitor
         }
 
         auto* data_logger = data_logger_service_->getDataLogger();
-        auto collected_data = data_logger->getCollectedData();
+        
+        // Use logged data for export (persistent data from logging sessions)
+        auto collected_data = data_logger->getLoggedData();
+        
+        if (collected_data.empty())
+        {
+            DIGITOYS_LOGW("WifiMonitor", "No logged data available for export");
+            return "error\nNo logged data available. Start a logging session first.\n";
+        }
         
         // CSV header
         std::string csv = "timestamp_us,key,value\n";
@@ -2071,7 +2088,8 @@ namespace wifi_monitor
             }
         }
         
-        DIGITOYS_LOGI("WifiMonitor", "getDataLoggerCSV completed, final size: %d bytes", csv.length());
+        DIGITOYS_LOGI("WifiMonitor", "getDataLoggerCSV completed, final size: %d bytes, entries: %zu", 
+                     csv.length(), collected_data.size());
         return csv;
     }
 

@@ -227,6 +227,11 @@ namespace digitoys::datalogger
         return total_memory;
     }
 
+    size_t DataLogger::getMaxMemoryKB() const
+    {
+        return config_.max_memory_kb;
+    }
+
     size_t DataLogger::getEntryCount() const
     {
         // For status reporting, return logged data count (what's available for export)

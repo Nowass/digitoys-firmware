@@ -1602,7 +1602,60 @@ namespace wifi_monitor
             // Initial button states
             if (stopBtn) stopBtn.disabled = true;
             
+            // Restore dashboard state from server
+            restoreDashboardState();
+            
             console.log('Logging UI initialized');
+        }
+
+        // Restore dashboard state on page load
+        function restoreDashboardState() {
+            console.log('Restoring dashboard state...');
+            
+            fetch('/logging/control')
+            .then(response => response.json())
+            .then(data => {
+                console.log('Dashboard state received:', data);
+                
+                // Update logging status
+                loggingActive = data.logging_active || false;
+                document.getElementById('logStatus').textContent = loggingActive ? 'Running' : 'Stopped';
+                
+                // Update button states
+                var startBtn = document.getElementById('startBtn');
+                var stopBtn = document.getElementById('stopBtn');
+                if (startBtn) startBtn.disabled = loggingActive;
+                if (stopBtn) stopBtn.disabled = !loggingActive;
+                
+                // Update entry count
+                if (data.entry_count !== undefined) {
+                    updateLogEntries(data.entry_count);
+                }
+                
+                // Update data size
+                if (data.data_size_kb !== undefined) {
+                    updateLogSize(data.data_size_kb);
+                }
+                
+                // Update memory usage
+                if (data.memory_usage_percent !== undefined) {
+                    document.getElementById('memoryUsage').textContent = 
+                        Math.round(data.memory_usage_percent * 10) / 10 + '%';
+                }
+                
+                // Update last entry (if we have data)
+                if (data.entry_count > 0) {
+                    document.getElementById('lastEntry').textContent = 'Recently';
+                } else {
+                    document.getElementById('lastEntry').textContent = 'Never';
+                }
+                
+                console.log('Dashboard state restored successfully');
+            })
+            .catch(error => {
+                console.error('Failed to restore dashboard state:', error);
+                // Continue with default state if restoration fails
+            });
         }
         
         // Initialize everything
@@ -2169,19 +2222,32 @@ namespace wifi_monitor
         }
         else
         {
-            // GET request - return current logging status
+            // GET request - return current logging status with complete dashboard info
             httpd_resp_set_type(req, "application/json");
             
             std::string response = "{";
             response += "\"logging_active\":" + std::string(instance_->isLoggingActive() ? "true" : "false");
             
             size_t entry_count = 0;
+            size_t memory_usage_bytes = 0;
+            float memory_usage_percent = 0.0f;
+            
             if (instance_->data_logger_service_)
             {
                 auto* data_logger = instance_->data_logger_service_->getDataLogger();
-                entry_count = data_logger->getEntryCount();
+                entry_count = data_logger->getEntryCount(); // Logged data count
+                memory_usage_bytes = data_logger->getMemoryUsage();
+                
+                // Calculate memory usage percentage
+                if (data_logger->getMaxMemoryKB() > 0) {
+                    memory_usage_percent = (float)memory_usage_bytes / (data_logger->getMaxMemoryKB() * 1024.0f) * 100.0f;
+                }
             }
+            
             response += ",\"entry_count\":" + std::to_string(entry_count);
+            response += ",\"memory_usage_bytes\":" + std::to_string(memory_usage_bytes);
+            response += ",\"memory_usage_percent\":" + std::to_string(memory_usage_percent);
+            response += ",\"data_size_kb\":" + std::to_string(memory_usage_bytes / 1024);
             response += "}";
             
             httpd_resp_send(req, response.c_str(), response.length());

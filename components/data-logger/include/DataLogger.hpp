@@ -60,6 +60,12 @@ namespace digitoys::datalogger
         size_t getMemoryUsage() const;
 
         /**
+         * @brief Get maximum configured memory limit
+         * @return Maximum memory limit in KB
+         */
+        size_t getMaxMemoryKB() const;
+
+        /**
          * @brief Get number of logged entries (available for export)
          * @return Number of logged entries
          */

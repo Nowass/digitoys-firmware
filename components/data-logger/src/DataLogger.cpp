@@ -449,29 +449,25 @@ namespace digitoys::datalogger
                 continue;
             }
 
-            // Add entries to collected data with memory limit checking
-            for (const DataEntry &entry : entries)
+            // Handle data collection based on current mode
+            if (current_monitoring_mode_)
             {
-                size_t entry_size = calculateEntrySize(entry);
-
-                if (!checkMemoryLimits() ||
-                    (current_memory_usage_ + entry_size) > (config_.max_memory_kb * 1024))
-                {
-                    ESP_LOGW(TAG, "Memory limit reached, skipping entry from '%s'", source_name.c_str());
-                    break;
-                }
-
-                collected_data_.push_back(entry);
-                current_memory_usage_ += entry_size;
-                entry_count_++;
+                // MONITORING MODE: Circular buffer behavior
+                addEntriesForMonitoring(entries, source_name);
+            }
+            else
+            {
+                // LOGGING MODE: Full collection with memory limit checking
+                addEntriesForLogging(entries, source_name);
             }
         }
 
         size_t collected_count = collected_data_.size() - initial_count;
         if (collected_count > 0)
         {
-            ESP_LOGD(TAG, "Collected %zu entries from %zu sources",
-                     collected_count, data_sources_.size());
+            ESP_LOGV(TAG, "Collected %zu entries from %zu sources (%s mode)",
+                     collected_count, data_sources_.size(), 
+                     current_monitoring_mode_ ? "monitoring" : "logging");
         }
 
         return ESP_OK;
@@ -500,6 +496,53 @@ namespace digitoys::datalogger
 
         ESP_LOGI(TAG, "Mode switched successfully, data buffer cleared");
         return ESP_OK;
+    }
+
+    void DataLogger::addEntriesForMonitoring(const std::vector<DataEntry> &entries, const std::string &source_name)
+    {
+        // In monitoring mode, we keep only the most recent entries (circular buffer)
+        size_t max_buffer_size = config_.monitoring_buffer_size;
+        
+        for (const DataEntry &entry : entries)
+        {
+            // Add the new entry
+            collected_data_.push_back(entry);
+            size_t entry_size = calculateEntrySize(entry);
+            current_memory_usage_ += entry_size;
+            entry_count_++;
+
+            // If we exceed the monitoring buffer size, remove the oldest entry
+            if (collected_data_.size() > max_buffer_size)
+            {
+                // Remove the first (oldest) entry
+                size_t removed_size = calculateEntrySize(collected_data_.front());
+                collected_data_.erase(collected_data_.begin());
+                current_memory_usage_ -= removed_size;
+                
+                ESP_LOGV(TAG, "Monitoring buffer full, removed oldest entry (buffer size: %zu)", 
+                         collected_data_.size());
+            }
+        }
+    }
+
+    void DataLogger::addEntriesForLogging(const std::vector<DataEntry> &entries, const std::string &source_name)
+    {
+        // In logging mode, we use the original memory limit checking
+        for (const DataEntry &entry : entries)
+        {
+            size_t entry_size = calculateEntrySize(entry);
+
+            if (!checkMemoryLimits() ||
+                (current_memory_usage_ + entry_size) > (config_.max_memory_kb * 1024))
+            {
+                ESP_LOGW(TAG, "Memory limit reached, skipping entry from '%s'", source_name.c_str());
+                break;
+            }
+
+            collected_data_.push_back(entry);
+            current_memory_usage_ += entry_size;
+            entry_count_++;
+        }
     }
 
 } // namespace digitoys::datalogger

@@ -168,6 +168,16 @@ namespace digitoys::datalogger
          */
         size_t calculateEntrySize(const DataEntry &entry) const;
 
+        /**
+         * @brief Add entries for monitoring mode (circular buffer)
+         */
+        void addEntriesForMonitoring(const std::vector<DataEntry> &entries, const std::string &source_name);
+
+        /**
+         * @brief Add entries for logging mode (memory limit checking)
+         */
+        void addEntriesForLogging(const std::vector<DataEntry> &entries, const std::string &source_name);
+
         // Current operating mode
         bool current_monitoring_mode_; ///< Current monitoring mode state
     };

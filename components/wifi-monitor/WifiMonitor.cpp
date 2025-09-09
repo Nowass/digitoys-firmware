@@ -1339,7 +1339,7 @@ namespace wifi_monitor
                 logFileWriter = writable;
                 
                 // Write CSV header
-                const header = 'timestamp,rc_input,distance,speed,safety_margin,obstacle_detected,warning_active\\n';
+                const header = 'source,key,value,timestamp_us,type\\n';
                 await logFileWriter.write(header);
                 
                 streamingActive = true;
@@ -1370,7 +1370,7 @@ namespace wifi_monitor
             };
             
             // Write CSV header
-            const header = 'timestamp,rc_input,distance,speed,safety_margin,obstacle_detected,warning_active\\n';
+            const header = 'source,key,value,timestamp_us,type\\n';
             logFileWriter.write(header);
         }
         
@@ -1418,16 +1418,19 @@ namespace wifi_monitor
         }
         
         function convertToCSV(data) {
-            // Convert JSON data to CSV format
-            const timestamp = data.timestamp || Date.now();
-            const rcInput = data.rc_input || 0;
-            const distance = data.distance || 0;
-            const speed = data.speed || 0;
-            const safetyMargin = data.safety_margin || 0;
-            const obstacleDetected = data.obstacle_detected ? 1 : 0;
-            const warningActive = data.warning_active ? 1 : 0;
+            // Convert JSON data to CSV format for generic DataEntry
+            const source = data.source || '';
+            const key = data.key || '';
+            const value = data.value || '';
+            const timestamp_us = data.timestamp_us || 0;
+            const type = data.type || 0;
             
-            return `${timestamp},${rcInput},${distance},${speed},${safetyMargin},${obstacleDetected},${warningActive}`;
+            // Escape any commas in the values
+            const escapedSource = source.replace(/,/g, ';');
+            const escapedKey = key.replace(/,/g, ';');
+            const escapedValue = value.replace(/,/g, ';');
+            
+            return `${escapedSource},${escapedKey},${escapedValue},${timestamp_us},${type}`;
         }
         
         // Logging functionality - Phase 2
@@ -2217,6 +2220,42 @@ namespace wifi_monitor
         return ESP_OK;
     }
 
+    void WifiMonitor::setupDataLoggerStreaming()
+    {
+        if (!data_logger_service_) {
+            DIGITOYS_LOGW("WifiMonitor", "No DataLogger service available for streaming setup");
+            return;
+        }
+
+        auto* data_logger = data_logger_service_->getDataLogger();
+        if (!data_logger) {
+            DIGITOYS_LOGW("WifiMonitor", "No DataLogger instance available for streaming setup");
+            return;
+        }
+
+        // Set up streaming callback
+        auto streaming_callback = [this](const digitoys::datalogger::DataEntry& entry, const std::string& source_name) {
+            // Convert DataEntry to JSON and broadcast
+            cJSON* json = cJSON_CreateObject();
+            cJSON_AddStringToObject(json, "source", source_name.c_str());
+            cJSON_AddStringToObject(json, "key", entry.key.c_str());
+            cJSON_AddStringToObject(json, "value", entry.value.c_str());
+            cJSON_AddNumberToObject(json, "timestamp_us", entry.timestamp_us);
+            cJSON_AddNumberToObject(json, "type", static_cast<int>(entry.type));
+
+            char* json_string = cJSON_Print(json);
+            if (json_string) {
+                std::string data_str(json_string);
+                broadcastDataEntry(data_str);
+                free(json_string);
+            }
+            cJSON_Delete(json);
+        };
+
+        data_logger->setStreamingCallback(streaming_callback);
+        DIGITOYS_LOGI("WifiMonitor", "DataLogger streaming callback configured");
+    }
+
     // WebSocket task function (placeholder for future implementation)
     void WifiMonitor::webSocketTaskFunction(void *param)
     {
@@ -2279,11 +2318,19 @@ namespace wifi_monitor
             auto *data_logger = data_logger_service_->getDataLogger();
             if (data_logger)
             {
+                // Enable streaming mode for real-time data streaming to browser
+                esp_err_t ret = data_logger->setStreamingMode(true);
+                if (ret != ESP_OK)
+                {
+                    DIGITOYS_LOGE("WifiMonitor", "Failed to enable DataLogger streaming mode: %s", esp_err_to_name(ret));
+                    return ret;
+                }
+
                 // Switch from monitoring mode to full logging mode
-                esp_err_t ret = data_logger->setMonitoringMode(false);
+                ret = data_logger->setMonitoringMode(false);
                 if (ret == ESP_OK)
                 {
-                    DIGITOYS_LOGI("WifiMonitor", "DataLogger switched to full logging mode");
+                    DIGITOYS_LOGI("WifiMonitor", "DataLogger switched to full logging mode with streaming enabled");
                 }
                 else
                 {
@@ -2304,11 +2351,18 @@ namespace wifi_monitor
             auto *data_logger = data_logger_service_->getDataLogger();
             if (data_logger)
             {
+                // Disable streaming mode
+                esp_err_t ret = data_logger->setStreamingMode(false);
+                if (ret != ESP_OK)
+                {
+                    DIGITOYS_LOGW("WifiMonitor", "Failed to disable DataLogger streaming mode: %s", esp_err_to_name(ret));
+                }
+
                 // Switch from full logging mode back to monitoring mode
-                esp_err_t ret = data_logger->setMonitoringMode(true);
+                ret = data_logger->setMonitoringMode(true);
                 if (ret == ESP_OK)
                 {
-                    DIGITOYS_LOGI("WifiMonitor", "DataLogger switched back to monitoring mode");
+                    DIGITOYS_LOGI("WifiMonitor", "DataLogger switched back to monitoring mode with streaming disabled");
                 }
                 else
                 {

@@ -84,6 +84,7 @@ namespace wifi_monitor
          */
         void setDataLoggerService(digitoys::datalogger::DataLoggerService* data_logger_service) {
             data_logger_service_ = data_logger_service;
+            setupDataLoggerStreaming();
         }
 
         /**
@@ -215,6 +216,7 @@ namespace wifi_monitor
         esp_err_t broadcastTelemetry();
         esp_err_t broadcastDataEntry(const std::string& data_json);
         void cleanupDisconnectedClients();
+        void setupDataLoggerStreaming();
 
         // HTTP request handlers
         static esp_err_t telemetryGetHandler(httpd_req_t *req);

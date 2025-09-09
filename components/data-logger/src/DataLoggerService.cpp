@@ -37,7 +37,11 @@ namespace digitoys::datalogger
             .enabled = true,
             .max_entries = digitoys::datalogger::config::MAX_ENTRIES,
             .flush_interval_ms = digitoys::datalogger::config::FLUSH_INTERVAL_MS,
-            .max_memory_kb = digitoys::datalogger::config::MAX_MEMORY_KB};
+            .max_memory_kb = digitoys::datalogger::config::MAX_MEMORY_KB,
+            .monitoring_mode = true,  // Start in monitoring mode
+            .streaming_mode = false,  // Streaming will be enabled by WifiMonitor when logging starts
+            .streaming_buffer_size = 100  // Small circular buffer for real-time display
+        };
 
         logger_ = std::make_unique<DataLogger>(config);
 

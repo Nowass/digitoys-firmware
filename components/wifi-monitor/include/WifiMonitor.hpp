@@ -213,6 +213,7 @@ namespace wifi_monitor
         static void webSocketTaskFunction(void *param);
         void webSocketBroadcastLoop();
         esp_err_t broadcastTelemetry();
+        esp_err_t broadcastDataEntry(const std::string& data_json);
         void cleanupDisconnectedClients();
 
         // HTTP request handlers
@@ -220,6 +221,7 @@ namespace wifi_monitor
         static esp_err_t systemGetHandler(httpd_req_t *req);
         static esp_err_t indexGetHandler(httpd_req_t *req);
         static esp_err_t websocketHandler(httpd_req_t *req);
+        static esp_err_t websocketDataHandler(httpd_req_t *req);
         static esp_err_t loggingControlHandler(httpd_req_t *req);
         static esp_err_t loggingDataHandler(httpd_req_t *req);
 
@@ -239,6 +241,7 @@ namespace wifi_monitor
 
         // WebSocket clients management
         std::vector<int> websocket_clients_;
+        std::vector<int> websocket_data_clients_;  // Separate list for data streaming clients
         SemaphoreHandle_t ws_clients_mutex_ = nullptr;
 
         // Telemetry data protection

@@ -13,6 +13,7 @@
 #include <string.h>
 #include <cmath>
 #include <ctime>
+#include <algorithm>
 #include <sys/socket.h>
 #include <errno.h>
 #include <esp_heap_caps.h>
@@ -407,7 +408,17 @@ namespace wifi_monitor
             .user_ctx = nullptr,
             .is_websocket = true,
             .handle_ws_control_frames = true};
+
+        // WebSocket route for data streaming
+        httpd_uri_t ws_data_uri = {
+            .uri = "/ws/data",
+            .method = HTTP_GET,
+            .handler = websocketDataHandler,
+            .user_ctx = nullptr,
+            .is_websocket = true,
+            .handle_ws_control_frames = true};
         httpd_register_uri_handler(server_, &ws_uri);
+        httpd_register_uri_handler(server_, &ws_data_uri);
 
         // Logging control endpoint (start/stop/clear logging)
         httpd_uri_t logging_control_uri = {
@@ -1934,6 +1945,102 @@ namespace wifi_monitor
             free(buf);
         }
         return ret;
+    }
+
+    esp_err_t WifiMonitor::websocketDataHandler(httpd_req_t *req)
+    {
+        if (!instance_)
+        {
+            DIGITOYS_LOGE("WifiMonitor", "WebSocket data handler called but no instance available");
+            return ESP_ERR_INVALID_STATE;
+        }
+
+        if (req->method == HTTP_GET)
+        {
+            DIGITOYS_LOGI("WifiMonitor", "WebSocket data streaming handshake from client");
+            
+            // Add client to data streaming list
+            if (xSemaphoreTake(instance_->ws_clients_mutex_, pdMS_TO_TICKS(1000)) == pdTRUE)
+            {
+                int sockfd = httpd_req_to_sockfd(req);
+                instance_->websocket_data_clients_.push_back(sockfd);
+                DIGITOYS_LOGI("WifiMonitor", "Added data streaming client: %d", sockfd);
+                xSemaphoreGive(instance_->ws_clients_mutex_);
+            }
+            
+            return ESP_OK;
+        }
+
+        // Handle client disconnection or data frames
+        httpd_ws_frame_t ws_pkt;
+        uint8_t *buf = nullptr;
+        memset(&ws_pkt, 0, sizeof(httpd_ws_frame_t));
+
+        esp_err_t ret = httpd_ws_recv_frame(req, &ws_pkt, 0);
+        if (ret != ESP_OK)
+        {
+            DIGITOYS_LOGE("WifiMonitor", "httpd_ws_recv_frame failed with %d", ret);
+            return ret;
+        }
+
+        if (ws_pkt.type == HTTPD_WS_TYPE_CLOSE)
+        {
+            // Remove client from data streaming list
+            if (xSemaphoreTake(instance_->ws_clients_mutex_, pdMS_TO_TICKS(1000)) == pdTRUE)
+            {
+                int sockfd = httpd_req_to_sockfd(req);
+                auto it = std::find(instance_->websocket_data_clients_.begin(), 
+                                  instance_->websocket_data_clients_.end(), sockfd);
+                if (it != instance_->websocket_data_clients_.end())
+                {
+                    instance_->websocket_data_clients_.erase(it);
+                    DIGITOYS_LOGI("WifiMonitor", "Removed data streaming client: %d", sockfd);
+                }
+                xSemaphoreGive(instance_->ws_clients_mutex_);
+            }
+        }
+
+        if (buf) {
+            free(buf);
+        }
+        return ESP_OK;
+    }
+
+    esp_err_t WifiMonitor::broadcastDataEntry(const std::string& data_json)
+    {
+        if (xSemaphoreTake(ws_clients_mutex_, pdMS_TO_TICKS(100)) != pdTRUE)
+        {
+            return ESP_ERR_TIMEOUT;
+        }
+
+        // Create WebSocket frame
+        httpd_ws_frame_t ws_pkt;
+        memset(&ws_pkt, 0, sizeof(httpd_ws_frame_t));
+        ws_pkt.payload = (uint8_t*)data_json.c_str();
+        ws_pkt.len = data_json.length();
+        ws_pkt.type = HTTPD_WS_TYPE_TEXT;
+
+        // Send to all data streaming clients
+        auto it = websocket_data_clients_.begin();
+        while (it != websocket_data_clients_.end())
+        {
+            int sockfd = *it;
+            
+            // Try to send data
+            if (httpd_ws_send_frame_async(server_, sockfd, &ws_pkt) != ESP_OK)
+            {
+                // Client disconnected, remove from list
+                DIGITOYS_LOGW("WifiMonitor", "Failed to send data to client %d, removing", sockfd);
+                it = websocket_data_clients_.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+
+        xSemaphoreGive(ws_clients_mutex_);
+        return ESP_OK;
     }
 
     // WebSocket task function (placeholder for future implementation)

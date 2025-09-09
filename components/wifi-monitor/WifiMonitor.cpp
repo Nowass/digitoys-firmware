@@ -1071,6 +1071,13 @@ namespace wifi_monitor
         let reconnectInterval = null;
         let httpFallbackInterval = null;
 
+        // File streaming variables
+        let dataStreamWs = null;
+        let currentLogFile = null;
+        let logFileWriter = null;
+        let logFileName = '';
+        let streamingActive = false;
+
         function connectWebSocket() {
             const wsUrl = `ws://${window.location.host}/ws`;
             console.log('Connecting to WebSocket:', wsUrl);
@@ -1262,6 +1269,167 @@ namespace wifi_monitor
         // Start with WebSocket
         connectWebSocket();
         
+        // File streaming functions for data logging
+        function connectDataStream() {
+            if (dataStreamWs && dataStreamWs.readyState === WebSocket.OPEN) {
+                return; // Already connected
+            }
+            
+            const wsUrl = `ws://${window.location.host}/ws/data`;
+            console.log('Connecting to data stream WebSocket:', wsUrl);
+            
+            dataStreamWs = new WebSocket(wsUrl);
+            
+            dataStreamWs.onopen = function(event) {
+                console.log('Data stream WebSocket connected');
+            };
+            
+            dataStreamWs.onmessage = function(event) {
+                if (streamingActive && logFileWriter) {
+                    // Write incoming data to file
+                    try {
+                        const data = JSON.parse(event.data);
+                        const csvLine = convertToCSV(data) + '\\n';
+                        logFileWriter.write(csvLine);
+                    } catch (error) {
+                        console.error('Error writing data to file:', error);
+                    }
+                }
+            };
+            
+            dataStreamWs.onclose = function(event) {
+                console.log('Data stream WebSocket disconnected');
+                dataStreamWs = null;
+            };
+            
+            dataStreamWs.onerror = function(error) {
+                console.error('Data stream WebSocket error:', error);
+            };
+        }
+        
+        function startFileStreaming() {
+            if (streamingActive) return;
+            
+            // Generate filename with timestamp
+            const now = new Date();
+            const timestamp = now.toISOString().replace(/[:.]/g, '-').slice(0, -5);
+            logFileName = `digitoys-log-${timestamp}.csv`;
+            
+            // Create file stream using File System Access API (if available)
+            if ('showSaveFilePicker' in window) {
+                // Modern browsers with File System Access API
+                createFileWithPicker();
+            } else {
+                // Fallback: accumulate data in memory and download at the end
+                createFileWithFallback();
+            }
+        }
+        
+        async function createFileWithPicker() {
+            try {
+                const fileHandle = await window.showSaveFilePicker({
+                    suggestedName: logFileName,
+                    types: [{
+                        description: 'CSV files',
+                        accept: { 'text/csv': ['.csv'] }
+                    }]
+                });
+                
+                const writable = await fileHandle.createWritable();
+                logFileWriter = writable;
+                
+                // Write CSV header
+                const header = 'timestamp,rc_input,distance,speed,safety_margin,obstacle_detected,warning_active\\n';
+                await logFileWriter.write(header);
+                
+                streamingActive = true;
+                connectDataStream();
+                console.log('File streaming started with picker:', logFileName);
+                
+            } catch (error) {
+                console.error('Error creating file with picker:', error);
+                createFileWithFallback(); // Fallback to memory accumulation
+            }
+        }
+        
+        function createFileWithFallback() {
+            // Fallback: accumulate data in memory
+            currentLogFile = [];
+            streamingActive = true;
+            connectDataStream();
+            console.log('File streaming started with fallback (memory accumulation)');
+            
+            // Create a simple file writer that accumulates in memory
+            logFileWriter = {
+                write: function(data) {
+                    currentLogFile.push(data);
+                },
+                close: function() {
+                    return Promise.resolve();
+                }
+            };
+            
+            // Write CSV header
+            const header = 'timestamp,rc_input,distance,speed,safety_margin,obstacle_detected,warning_active\\n';
+            logFileWriter.write(header);
+        }
+        
+        async function stopFileStreaming() {
+            if (!streamingActive) return;
+            
+            streamingActive = false;
+            
+            // Close WebSocket connection
+            if (dataStreamWs) {
+                dataStreamWs.close();
+                dataStreamWs = null;
+            }
+            
+            // Close file writer
+            if (logFileWriter && logFileWriter.close) {
+                await logFileWriter.close();
+            }
+            
+            // If using fallback (memory accumulation), trigger download
+            if (currentLogFile && currentLogFile.length > 0) {
+                downloadLogFile();
+            }
+            
+            console.log('File streaming stopped');
+        }
+        
+        function downloadLogFile() {
+            if (!currentLogFile || currentLogFile.length === 0) return;
+            
+            const csvContent = currentLogFile.join('');
+            const blob = new Blob([csvContent], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = logFileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            currentLogFile = null;
+            console.log('Log file downloaded:', logFileName);
+        }
+        
+        function convertToCSV(data) {
+            // Convert JSON data to CSV format
+            const timestamp = data.timestamp || Date.now();
+            const rcInput = data.rc_input || 0;
+            const distance = data.distance || 0;
+            const speed = data.speed || 0;
+            const safetyMargin = data.safety_margin || 0;
+            const obstacleDetected = data.obstacle_detected ? 1 : 0;
+            const warningActive = data.warning_active ? 1 : 0;
+            
+            return `${timestamp},${rcInput},${distance},${speed},${safetyMargin},${obstacleDetected},${warningActive}`;
+        }
+        
         // Logging functionality - Phase 2
         var loggingActive = false;
         var logEntries = 0;
@@ -1340,6 +1508,9 @@ namespace wifi_monitor
                     document.getElementById('physicsCharts').style.display = 'block';
                     initPhysicsCharts();
                     
+                    // Start file streaming
+                    startFileStreaming();
+                    
                     console.log('Logging started successfully');
                 }
             })
@@ -1387,6 +1558,9 @@ namespace wifi_monitor
                     
                     // Check if we have logged data to decide chart visibility
                     updatePhysicsChartsVisibility();
+                    
+                    // Stop file streaming
+                    stopFileStreaming();
                     
                     console.log('Logging stopped successfully');
                 }

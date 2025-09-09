@@ -6,9 +6,20 @@
 #include <vector>
 #include <memory>
 #include <map>
+#include <functional>
 
 namespace digitoys::datalogger
 {
+    // Forward declarations
+    struct DataEntry;
+    
+    /**
+     * @brief Callback function type for data streaming
+     * @param entry The data entry to stream
+     * @param source_name Name of the data source
+     */
+    using DataStreamCallback = std::function<void(const DataEntry&, const std::string&)>;
+
     /**
      * @brief Configuration for data logger
      */
@@ -20,6 +31,8 @@ namespace digitoys::datalogger
         size_t max_memory_kb = 64;         ///< Maximum memory usage in KB
         bool monitoring_mode = true;       ///< If true, use circular buffer for dashboard monitoring
         size_t monitoring_buffer_size = 20; ///< Number of entries to keep in monitoring mode
+        bool streaming_mode = false;       ///< If true, enable data streaming via callback
+        size_t streaming_buffer_size = 50; ///< Number of entries to keep in circular buffer for streaming mode
     };
 
     /**
@@ -129,6 +142,30 @@ namespace digitoys::datalogger
         bool isMonitoringMode() const { return current_monitoring_mode_; }
 
         /**
+         * @brief Enable/disable streaming mode
+         * @param enable If true, enable streaming mode with circular buffer
+         * @return ESP_OK on success
+         */
+        esp_err_t setStreamingMode(bool enable);
+
+        /**
+         * @brief Check if currently in streaming mode
+         * @return true if in streaming mode
+         */
+        bool isStreamingMode() const { return current_streaming_mode_; }
+
+        /**
+         * @brief Set callback for data streaming
+         * @param callback Function to call when new data is available for streaming
+         */
+        void setStreamingCallback(DataStreamCallback callback);
+
+        /**
+         * @brief Clear streaming callback
+         */
+        void clearStreamingCallback();
+
+        /**
          * @brief Get a copy of collected data for analysis
          * @param max_entries Maximum number of recent entries to return (0 = all)
          * @return Vector of recent data entries
@@ -165,9 +202,14 @@ namespace digitoys::datalogger
         // Separate data storage for different modes
         std::vector<DataEntry> logged_data_;        // Persistent data from logging sessions
         std::vector<DataEntry> monitoring_data_;    // Circular buffer for monitoring
+        std::vector<DataEntry> streaming_data_;     // Circular buffer for streaming mode
         std::vector<DataEntry> collected_data_;     // Legacy compatibility (points to active storage)
         
         esp_timer_handle_t collection_timer_ = nullptr;
+
+        // Streaming functionality
+        bool current_streaming_mode_ = false;       ///< Current streaming mode state
+        DataStreamCallback streaming_callback_;     ///< Callback for data streaming
 
         /**
          * @brief Timer callback for auto-flush
@@ -208,6 +250,11 @@ namespace digitoys::datalogger
          * @brief Add entries for logging mode (memory limit checking)
          */
         void addEntriesForLogging(const std::vector<DataEntry> &entries, const std::string &source_name);
+
+        /**
+         * @brief Add entries for streaming mode (circular buffer + callback)
+         */
+        void addEntriesForStreaming(const std::vector<DataEntry> &entries, const std::string &source_name);
 
         // Current operating mode
         bool current_monitoring_mode_; ///< Current monitoring mode state

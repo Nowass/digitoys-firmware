@@ -8,13 +8,14 @@ namespace digitoys::datalogger
     const char *DataLogger::TAG = "DataLogger";
 
     DataLogger::DataLogger(const DataLoggerConfig &config)
-        : ComponentBase("DataLogger"), config_(config), current_monitoring_mode_(config.monitoring_mode)
+        : ComponentBase("DataLogger"), config_(config), current_streaming_mode_(config.streaming_mode), current_monitoring_mode_(config.monitoring_mode)
     {
-        ESP_LOGI(TAG, "DataLogger created (enabled: %s, max_entries: %lu, max_memory: %lu KB, monitoring: %s)",
+        ESP_LOGI(TAG, "DataLogger created (enabled: %s, max_entries: %lu, max_memory: %lu KB, monitoring: %s, streaming: %s)",
                  config_.enabled ? "true" : "false",
                  config_.max_entries,
                  config_.max_memory_kb,
-                 current_monitoring_mode_ ? "true" : "false");
+                 current_monitoring_mode_ ? "true" : "false",
+                 current_streaming_mode_ ? "true" : "false");
     }
 
     DataLogger::~DataLogger()
@@ -499,7 +500,12 @@ namespace digitoys::datalogger
             }
 
             // Handle data collection based on current mode
-            if (current_monitoring_mode_)
+            if (current_streaming_mode_)
+            {
+                // STREAMING MODE: Circular buffer + callback for real-time streaming
+                addEntriesForStreaming(entries, source_name);
+            }
+            else if (current_monitoring_mode_)
             {
                 // MONITORING MODE: Circular buffer behavior
                 addEntriesForMonitoring(entries, source_name);
@@ -514,9 +520,10 @@ namespace digitoys::datalogger
         size_t collected_count = collected_data_.size() - initial_count;
         if (collected_count > 0)
         {
+            const char* mode_str = current_streaming_mode_ ? "streaming" : 
+                                 (current_monitoring_mode_ ? "monitoring" : "logging");
             ESP_LOGV(TAG, "Collected %zu entries from %zu sources (%s mode)",
-                     collected_count, data_sources_.size(), 
-                     current_monitoring_mode_ ? "monitoring" : "logging");
+                     collected_count, data_sources_.size(), mode_str);
         }
 
         return ESP_OK;
@@ -598,6 +605,73 @@ namespace digitoys::datalogger
 
             logged_data_.push_back(entry);
         }
+    }
+
+    esp_err_t DataLogger::setStreamingMode(bool enable)
+    {
+        if (current_streaming_mode_ == enable)
+        {
+            return ESP_OK; // Already in desired state
+        }
+
+        ESP_LOGI(TAG, "%s streaming mode", enable ? "Enabling" : "Disabling");
+        
+        current_streaming_mode_ = enable;
+        
+        if (enable)
+        {
+            // When enabling streaming mode, reserve space for circular buffer
+            streaming_data_.reserve(config_.streaming_buffer_size);
+            
+            // Disable monitoring mode when streaming is enabled
+            current_monitoring_mode_ = false;
+        }
+        else
+        {
+            // Clear streaming data when disabling
+            streaming_data_.clear();
+            streaming_data_.shrink_to_fit();
+        }
+
+        return ESP_OK;
+    }
+
+    void DataLogger::setStreamingCallback(DataStreamCallback callback)
+    {
+        streaming_callback_ = callback;
+        ESP_LOGI(TAG, "Streaming callback %s", callback ? "set" : "cleared");
+    }
+
+    void DataLogger::clearStreamingCallback()
+    {
+        streaming_callback_ = nullptr;
+        ESP_LOGI(TAG, "Streaming callback cleared");
+    }
+
+    void DataLogger::addEntriesForStreaming(const std::vector<DataEntry> &entries, const std::string &source_name)
+    {
+        // In streaming mode, maintain a small circular buffer for display
+        // and call the streaming callback for each entry
+        for (const DataEntry &entry : entries)
+        {
+            // Add to circular buffer for display
+            streaming_data_.push_back(entry);
+            
+            // Maintain circular buffer size
+            if (streaming_data_.size() > config_.streaming_buffer_size)
+            {
+                streaming_data_.erase(streaming_data_.begin());
+            }
+            
+            // Call streaming callback if set
+            if (streaming_callback_)
+            {
+                streaming_callback_(entry, source_name);
+            }
+        }
+        
+        // Update the collected_data_ pointer for compatibility
+        collected_data_ = streaming_data_;
     }
 
 } // namespace digitoys::datalogger

@@ -959,7 +959,10 @@ namespace wifi_monitor
     </div>
     
     <div class="container" id="physicsCharts" style="display: none;">
-        <h2 style="color: var(--accent-green); margin-bottom: 1rem;">Real-Time Physics Data</h2>
+        <h2 style="color: var(--accent-green); margin-bottom: 1rem;">
+            Real-Time Physics Data
+            <span id="chartsStatus" style="font-size: 0.7rem; color: #888; margin-left: 1rem;"></span>
+        </h2>
         <div class="chart-grid">
             <div class="chart-container">
                 <h3>Speed vs Distance</h3>
@@ -1198,12 +1201,12 @@ namespace wifi_monitor
                         });
                     }
                     
-                    // Request next data after 1 second
+                    // Request next data after 500ms for faster updates
                     setTimeout(() => {
                         if (ws && ws.readyState === WebSocket.OPEN) {
                             ws.send('get_data');
                         }
-                    }, 1000);
+                    }, 500);
                     
                 } catch (e) {
                     console.error('Error parsing WebSocket data:', e);
@@ -1216,21 +1219,21 @@ namespace wifi_monitor
                 document.getElementById('status').textContent = 'Disconnected - Reconnecting...';
                 document.getElementById('status').style.color = 'var(--accent-orange)';
                 
-                // Start reconnection timer
+                // Start reconnection timer (faster reconnection)
                 if (!reconnectInterval) {
                     reconnectInterval = setInterval(() => {
                         console.log('Attempting WebSocket reconnection...');
                         connectWebSocket();
-                    }, 3000);
+                    }, 2000); // Faster reconnection (was 3000ms)
                 }
                 
-                // Start HTTP fallback after 5 seconds
+                // Start HTTP fallback after 3 seconds (faster fallback)
                 setTimeout(() => {
                     if (!wsConnected && !httpFallbackInterval) {
                         console.log('Starting HTTP fallback...');
                         startHttpFallback();
                     }
-                }, 5000);
+                }, 3000); // Faster fallback (was 5000ms)
             };
             
             ws.onerror = function(error) {
@@ -1308,7 +1311,7 @@ namespace wifi_monitor
         }
 
         function startHttpFallback() {
-            httpFallbackInterval = setInterval(fetchStatsHTTP, 2000); // Slower HTTP polling
+            httpFallbackInterval = setInterval(fetchStatsHTTP, 1000); // Faster HTTP polling (was 2000ms)
             fetchStatsHTTP(); // Initial call
         }
 
@@ -1619,8 +1622,8 @@ namespace wifi_monitor
                     // Start session timer
                     sessionTimer = setInterval(updateSessionTime, 1000);
                     
-                    // Start periodic data refresh
-                    dataRefreshTimer = setInterval(refreshLogData, 2000);
+                    // Start periodic data refresh (faster updates during logging)
+                    dataRefreshTimer = setInterval(refreshLogData, 1000);
                     
                     // Update button states
                     document.getElementById('startBtn').disabled = true;
@@ -1629,6 +1632,11 @@ namespace wifi_monitor
                     // Show physics charts
                     document.getElementById('physicsCharts').style.display = 'block';
                     initPhysicsCharts();
+                    
+                    // Unlock charts for real-time updates
+                    chartsLocked = false;
+                    document.getElementById('chartsStatus').textContent = '(Live Updates)';
+                    document.getElementById('chartsStatus').style.color = '#2ea043';
                     
                     // Start file streaming
                     startFileStreaming();
@@ -1679,6 +1687,11 @@ namespace wifi_monitor
                     
                     // Keep charts visible after stopping - they should persist until user clears data
                     // Charts will only be hidden when user explicitly clicks "Clear Data"
+                    
+                    // Lock charts to show final logged data - stop real-time updates
+                    chartsLocked = true;
+                    document.getElementById('chartsStatus').textContent = '(Showing Last Logged Data)';
+                    document.getElementById('chartsStatus').style.color = '#d29922';
                     
                     // Stop file streaming
                     stopFileStreaming();
@@ -1738,6 +1751,10 @@ namespace wifi_monitor
                     
                     // Hide physics charts when data is cleared
                     document.getElementById('physicsCharts').style.display = 'none';
+                    
+                    // Unlock charts for next logging session
+                    chartsLocked = false;
+                    document.getElementById('chartsStatus').textContent = '';
                     
                     // Reset brake events counter
                     document.getElementById('brakeEvents').textContent = '0';
@@ -1805,6 +1822,7 @@ namespace wifi_monitor
         var rcInputData = [];
         var safetyData = [];
         var maxDataPoints = 50;
+        var chartsLocked = false; // When true, charts freeze and don't update
         
         function initPhysicsCharts() {
             // Initialize speed chart
@@ -1829,6 +1847,11 @@ namespace wifi_monitor
         }
         
         function updatePhysicsDisplay(telemetryData) {
+            // Skip updates if charts are locked (after logging stops)
+            if (chartsLocked) {
+                return; // Charts frozen on last logged data
+            }
+            
             // Use real telemetry data for physics charts
             if (!telemetryData) {
                 return; // No data available, skip update
@@ -2091,6 +2114,20 @@ namespace wifi_monitor
                 // Update logging status
                 loggingActive = data.logging_active || false;
                 document.getElementById('logStatus').textContent = loggingActive ? 'Running' : 'Stopped';
+                
+                // Update charts lock status based on logging state
+                if (loggingActive) {
+                    chartsLocked = false;
+                    document.getElementById('chartsStatus').textContent = '(Live Updates)';
+                    document.getElementById('chartsStatus').style.color = '#2ea043';
+                } else if (data.entry_count > 0) {
+                    chartsLocked = true;
+                    document.getElementById('chartsStatus').textContent = '(Showing Last Logged Data)';
+                    document.getElementById('chartsStatus').style.color = '#d29922';
+                } else {
+                    chartsLocked = false;
+                    document.getElementById('chartsStatus').textContent = '';
+                }
                 
                 // Update button states
                 var startBtn = document.getElementById('startBtn');

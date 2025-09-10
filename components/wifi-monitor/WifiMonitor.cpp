@@ -1077,6 +1077,11 @@ namespace wifi_monitor
         let logFileWriter = null;
         let logFileName = '';
         let streamingActive = false;
+        
+        // Data aggregation for CSV formatting
+        let pendingDataRows = new Map(); // timestamp -> {data entries}
+        let flushTimeout = null;
+        const FLUSH_TIMEOUT_MS = 100; // Flush incomplete rows after 100ms
 
         function connectWebSocket() {
             const wsUrl = `ws://${window.location.host}/ws`;
@@ -1286,13 +1291,31 @@ namespace wifi_monitor
             
             dataStreamWs.onmessage = function(event) {
                 if (streamingActive && logFileWriter) {
-                    // Write incoming data to file
+                    // Aggregate incoming data entries by timestamp
                     try {
                         const data = JSON.parse(event.data);
-                        const csvLine = convertToCSV(data) + '\\n';
-                        logFileWriter.write(csvLine);
+                        console.log('Received data entry:', data);  // Debug log
+                        const timestamp = Math.floor(data.timestamp_us / 1000); // Convert to ms for grouping
+                        
+                        // Initialize row if not exists
+                        if (!pendingDataRows.has(timestamp)) {
+                            pendingDataRows.set(timestamp, {
+                                timestamp_us: data.timestamp_us,
+                                source: data.source,
+                                entries: {}
+                            });
+                        }
+                        
+                        // Add this entry to the row
+                        pendingDataRows.get(timestamp).entries[data.key] = data.value;
+                        console.log('Pending data rows:', pendingDataRows.size);  // Debug log
+                        
+                        // Reset flush timeout
+                        if (flushTimeout) clearTimeout(flushTimeout);
+                        flushTimeout = setTimeout(flushPendingRows, FLUSH_TIMEOUT_MS);
+                        
                     } catch (error) {
-                        console.error('Error writing data to file:', error);
+                        console.error('Error processing data:', error);
                     }
                 }
             };
@@ -1338,8 +1361,8 @@ namespace wifi_monitor
                 const writable = await fileHandle.createWritable();
                 logFileWriter = writable;
                 
-                // Write CSV header
-                const header = 'source,key,value,timestamp_us,type\\n';
+                // Write CSV header with proper column structure
+                const header = 'timestamp_us,rc_input,distance,speed,safety_margin,obstacle_detected,warning_active\n';
                 await logFileWriter.write(header);
                 
                 streamingActive = true;
@@ -1378,6 +1401,15 @@ namespace wifi_monitor
             if (!streamingActive) return;
             
             streamingActive = false;
+            
+            // Flush any pending rows
+            if (flushTimeout) {
+                clearTimeout(flushTimeout);
+                flushTimeout = null;
+            }
+            if (pendingDataRows.size > 0) {
+                flushPendingRows();
+            }
             
             // Close WebSocket connection
             if (dataStreamWs) {
@@ -1431,6 +1463,31 @@ namespace wifi_monitor
             const escapedValue = value.replace(/,/g, ';');
             
             return `${escapedSource},${escapedKey},${escapedValue},${timestamp_us},${type}`;
+        }
+        
+        function flushPendingRows() {
+            for (const [timestamp, rowData] of pendingDataRows) {
+                const csvLine = convertAggregatedToCSV(rowData) + '\n';
+                console.log('Writing CSV line:', csvLine);  // Debug log
+                logFileWriter.write(csvLine);
+            }
+            pendingDataRows.clear();
+        }
+        
+        function convertAggregatedToCSV(rowData) {
+            // Convert aggregated data to CSV format matching new header structure
+            const timestamp = rowData.timestamp_us || 0;
+            const rcInput = rowData.entries.rc_input || rowData.entries['rc_input_duty_cycle'] || 0;
+            const distance = rowData.entries.distance || rowData.entries['obstacle_distance'] || 0;
+            const speed = rowData.entries.speed || rowData.entries['speed_estimate'] || 0;
+            const safetyMargin = rowData.entries.safety_margin || 0;
+            const obstacleDetected = (rowData.entries.obstacle_detected === 'true' || 
+                                     rowData.entries.is_obstacle_state === 'true' ||
+                                     rowData.entries.obstacle_detected === '1') ? 1 : 0;
+            const warningActive = (rowData.entries.warning_active === 'true' || 
+                                  rowData.entries.warning_active === '1') ? 1 : 0;
+            
+            return `${timestamp},${rcInput},${distance},${speed},${safetyMargin},${obstacleDetected},${warningActive}`;
         }
         
         // Logging functionality - Phase 2

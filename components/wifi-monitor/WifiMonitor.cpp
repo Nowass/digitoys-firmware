@@ -788,14 +788,25 @@ namespace wifi_monitor
             display: flex;
             justify-content: center;
             margin-top: 8px;
-            gap: 15px;
+            gap: 20px;
         }
         .legend-item {
             display: flex;
+            flex-direction: column;
             align-items: center;
-            gap: 6px;
+            gap: 3px;
             font-size: 12px;
             color: #c9d1d9;
+        }
+        .legend-label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .legend-axis {
+            font-size: 10px;
+            opacity: 0.8;
+            text-align: center;
         }
         .legend-color {
             width: 16px;
@@ -955,12 +966,18 @@ namespace wifi_monitor
                 <canvas id="speedChart" width="280" height="160"></canvas>
                 <div class="chart-legend">
                     <div class="legend-item">
-                        <div class="legend-color" style="background-color: #2ea043;"></div>
-                        <span>Speed (left axis, km/h)</span>
+                        <div class="legend-label">
+                            <div class="legend-color" style="background-color: #2ea043;"></div>
+                            <span>Speed</span>
+                        </div>
+                        <div class="legend-axis">(left axis, km/h)</div>
                     </div>
                     <div class="legend-item">
-                        <div class="legend-color" style="background-color: #d29922;"></div>
-                        <span>Distance (right axis, cm)</span>
+                        <div class="legend-label">
+                            <div class="legend-color" style="background-color: #d29922;"></div>
+                            <span>Distance</span>
+                        </div>
+                        <div class="legend-axis">(right axis, cm)</div>
                     </div>
                 </div>
             </div>
@@ -969,12 +986,18 @@ namespace wifi_monitor
                 <canvas id="safetyChart" width="280" height="160"></canvas>
                 <div class="chart-legend">
                     <div class="legend-item">
-                        <div class="legend-color" style="background-color: #2ea043;"></div>
-                        <span>RC Input (left axis, %)</span>
+                        <div class="legend-label">
+                            <div class="legend-color" style="background-color: #2ea043;"></div>
+                            <span>RC Input</span>
+                        </div>
+                        <div class="legend-axis">(left axis, %)</div>
                     </div>
                     <div class="legend-item">
-                        <div class="legend-color" style="background-color: #f85149;"></div>
-                        <span>Safety Margin (right axis, cm)</span>
+                        <div class="legend-label">
+                            <div class="legend-color" style="background-color: #f85149;"></div>
+                            <span>Safety Margin</span>
+                        </div>
+                        <div class="legend-axis">(right axis, cm)</div>
                     </div>
                 </div>
             </div>
@@ -1860,10 +1883,10 @@ namespace wifi_monitor
             const canvas = ctx.canvas;
             const width = canvas.width;
             const height = canvas.height;
-            const leftPadding = 40; // Space for left Y-axis labels
-            const rightPadding = 40; // Space for right Y-axis labels
+            const leftPadding = 60; // More space for left Y-axis labels
+            const rightPadding = 60; // More space for right Y-axis labels
             const chartWidth = width - leftPadding - rightPadding;
-            const chartHeight = height - 20; // Space for bottom padding
+            const chartHeight = height - 20; // Reduced bottom padding since no axis labels
             
             // Clear canvas
             ctx.fillStyle = '#000';
@@ -1892,7 +1915,7 @@ namespace wifi_monitor
                 
                 // Draw left label with color coding
                 ctx.fillStyle = leftDataset.color;
-                ctx.fillText(value.toFixed(leftRange.decimals || 0), leftPadding - 8, y);
+                ctx.fillText(value.toFixed(leftRange.decimals || 0), leftPadding - 10, y);
                 
                 // Draw grid line (subtle)
                 if (i > 0 && i < steps) {
@@ -1921,7 +1944,7 @@ namespace wifi_monitor
                 
                 // Draw right label with color coding
                 ctx.fillStyle = rightDataset.color;
-                ctx.fillText(value.toFixed(rightRange.decimals || 0), leftPadding + chartWidth + 8, y);
+                ctx.fillText(value.toFixed(rightRange.decimals || 0), leftPadding + chartWidth + 10, y);
             }
             
             // Draw vertical grid lines
@@ -1980,27 +2003,7 @@ namespace wifi_monitor
             ctx.lineWidth = 1;
             ctx.strokeRect(leftPadding, 10, chartWidth, chartHeight);
             
-            // Draw axis labels
-            ctx.fillStyle = '#c9d1d9';
-            ctx.font = '12px Arial';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'top';
-            
-            // Left axis label
-            ctx.save();
-            ctx.translate(15, height / 2);
-            ctx.rotate(-Math.PI / 2);
-            ctx.fillStyle = leftDataset.color;
-            ctx.fillText(leftDataset.label + ' (' + leftRange.unit + ')', 0, 0);
-            ctx.restore();
-            
-            // Right axis label
-            ctx.save();
-            ctx.translate(width - 15, height / 2);
-            ctx.rotate(Math.PI / 2);
-            ctx.fillStyle = rightDataset.color;
-            ctx.fillText(rightDataset.label + ' (' + rightRange.unit + ')', 0, 0);
-            ctx.restore();
+            // No axis labels needed - all info is in the legend
         }
         
         function exportData() {

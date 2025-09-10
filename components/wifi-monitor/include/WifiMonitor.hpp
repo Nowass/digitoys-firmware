@@ -17,6 +17,10 @@ namespace digitoys::datalogger {
     class DataLoggerService;
 }
 
+namespace digitoys::datamodeling {
+    class DataModeling;
+}
+
 namespace wifi_monitor
 {
     /**
@@ -85,6 +89,13 @@ namespace wifi_monitor
         void setDataLoggerService(digitoys::datalogger::DataLoggerService* data_logger_service) {
             data_logger_service_ = data_logger_service;
             setupDataLoggerStreaming();
+        }
+
+        /**
+         * @brief Set the DataModeling service for session control (can be called after construction)
+         */
+        void setDataModelingService(digitoys::datamodeling::DataModeling* data_modeling_service) {
+            data_modeling_service_ = data_modeling_service;
         }
 
         /**
@@ -245,8 +256,9 @@ namespace wifi_monitor
         bool isWebSocketFrame(httpd_req_t *req);
 
     private:
-        // DataLogger integration
+        // Service integrations
         digitoys::datalogger::DataLoggerService* data_logger_service_ = nullptr;
+        digitoys::datamodeling::DataModeling* data_modeling_service_ = nullptr;
 
         // Network interfaces
         esp_netif_t *ap_netif_ = nullptr;

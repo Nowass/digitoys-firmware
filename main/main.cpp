@@ -10,6 +10,7 @@
 #include "SystemMonitor.hpp"
 #include "ControlTask.hpp"
 #include "DataLoggerService.hpp" // Add DataLogger integration
+#include "DataModeling.hpp" // Add DataModeling component
 
 static const char *TAG = "APP_MAIN";
 using namespace lidar;
@@ -51,9 +52,42 @@ extern "C" void app_main()
     ESP_ERROR_CHECK(data_logger.start());
     ESP_LOGI(TAG, "DataLogger service initialized and started");
 
+    // --- DataModeling Service for Behavior Analysis ---
+    static digitoys::datamodeling::DataModeling data_modeling;
+    ESP_ERROR_CHECK(data_modeling.initialize());
+    ESP_ERROR_CHECK(data_modeling.start());
+    ESP_LOGI(TAG, "DataModeling service initialized and started");
+
+    // --- Connect DataLogger to DataModeling Pipeline ---
+    // Enable streaming mode for real-time data processing
+    data_logger.getDataLogger()->setStreamingMode(true);
+    
+    // Set up data stream callback to feed DataModeling
+    data_logger.getDataLogger()->setStreamingCallback([&data_modeling](const digitoys::datalogger::DataEntry& entry, const std::string& source_name) {
+        // Collect recent data entries for processing
+        static std::vector<digitoys::datalogger::DataEntry> batch_buffer;
+        batch_buffer.push_back(entry);
+        
+        // Process in batches every 10 entries for efficiency
+        if (batch_buffer.size() >= 10) {
+            auto behavior_point = data_modeling.processRawData(batch_buffer);
+            batch_buffer.clear();
+            
+            // Optional: Log processing stats
+            ESP_LOGD(TAG, "Processed batch: Session=%lu, Speed=%.2f", 
+                    behavior_point.session_data.session_id, 
+                    behavior_point.physics_data.calculated_speed);
+        }
+    });
+    ESP_LOGI(TAG, "DataLogger pipeline connected to DataModeling");
+
     // --- Connect DataLogger to WiFi Monitor for button control ---
     wifi_mon.setDataLoggerService(&data_logger);
     ESP_LOGI(TAG, "DataLogger connected to WiFi Monitor for logging control");
+
+    // --- Connect DataModeling to WiFi Monitor for session control ---
+    wifi_mon.setDataModelingService(&data_modeling);
+    ESP_LOGI(TAG, "DataModeling connected to WiFi Monitor for session management");
 
     // Print initial status after all services are running
     vTaskDelay(pdMS_TO_TICKS(3000)); // Wait for initial data collection

@@ -951,30 +951,30 @@ namespace wifi_monitor
         <h2 style="color: var(--accent-green); margin-bottom: 1rem;">Real-Time Physics Data</h2>
         <div class="chart-grid">
             <div class="chart-container">
-                <h3>Vehicle Speed & Distance</h3>
+                <h3>Speed vs Distance</h3>
                 <canvas id="speedChart" width="280" height="160"></canvas>
                 <div class="chart-legend">
                     <div class="legend-item">
                         <div class="legend-color" style="background-color: #2ea043;"></div>
-                        <span>Speed (km/h)</span>
+                        <span>Speed (left axis, km/h)</span>
                     </div>
                     <div class="legend-item">
                         <div class="legend-color" style="background-color: #d29922;"></div>
-                        <span>Distance (cm)</span>
+                        <span>Distance (right axis, cm)</span>
                     </div>
                 </div>
             </div>
             <div class="chart-container">
-                <h3>RC Input & Safety</h3>
+                <h3>RC Input vs Safety Margin</h3>
                 <canvas id="safetyChart" width="280" height="160"></canvas>
                 <div class="chart-legend">
                     <div class="legend-item">
                         <div class="legend-color" style="background-color: #2ea043;"></div>
-                        <span>RC Input (%)</span>
+                        <span>RC Input (left axis, %)</span>
                     </div>
                     <div class="legend-item">
                         <div class="legend-color" style="background-color: #f85149;"></div>
-                        <span>Safety Margin (cm)</span>
+                        <span>Safety Margin (right axis, cm)</span>
                     </div>
                 </div>
             </div>
@@ -1716,6 +1716,9 @@ namespace wifi_monitor
                     // Hide physics charts when data is cleared
                     document.getElementById('physicsCharts').style.display = 'none';
                     
+                    // Reset brake events counter
+                    document.getElementById('brakeEvents').textContent = '0';
+                    
                     console.log('Data cleared successfully');
                     alert('All logged data has been cleared successfully.');
                 } else {
@@ -1826,16 +1829,20 @@ namespace wifi_monitor
             if (rcInputData.length > maxDataPoints) rcInputData.shift();
             if (safetyData.length > maxDataPoints) safetyData.shift();
             
-            // Update charts
-            drawChart(speedChart.ctx, [
+            // Update charts with dual-axis system
+            drawDualAxisChart(speedChart.ctx, 
                 { data: speedData, color: '#2ea043', label: 'Speed' },
-                { data: distanceData, color: '#d29922', label: 'Distance' }
-            ], { min: 0, max: 250 });
+                { data: distanceData, color: '#d29922', label: 'Distance' },
+                { min: 0, max: 50, unit: 'km/h', decimals: 0 },
+                { min: 0, max: 300, unit: 'cm', decimals: 0 }
+            );
             
-            drawChart(safetyChart.ctx, [
+            drawDualAxisChart(safetyChart.ctx, 
                 { data: rcInputData, color: '#2ea043', label: 'RC Input' },
-                { data: safetyData, color: '#f85149', label: 'Safety' }
-            ], { min: 0, max: 150 });
+                { data: safetyData, color: '#f85149', label: 'Safety Margin' },
+                { min: 0, max: 15, unit: '%', decimals: 1 },
+                { min: 0, max: 300, unit: 'cm', decimals: 0 }
+            );
             
             // Update summary values
             document.getElementById('currentRcInput').textContent = rcInput.toFixed(1);
@@ -1849,73 +1856,94 @@ namespace wifi_monitor
             }
         }
         
-        function drawChart(ctx, datasets, range) {
+        function drawDualAxisChart(ctx, leftDataset, rightDataset, leftRange, rightRange) {
             const canvas = ctx.canvas;
             const width = canvas.width;
             const height = canvas.height;
-            const padding = 40; // Space for Y-axis labels
-            const chartWidth = width - padding;
+            const leftPadding = 40; // Space for left Y-axis labels
+            const rightPadding = 40; // Space for right Y-axis labels
+            const chartWidth = width - leftPadding - rightPadding;
             const chartHeight = height - 20; // Space for bottom padding
             
             // Clear canvas
             ctx.fillStyle = '#000';
             ctx.fillRect(0, 0, width, height);
             
-            // Draw Y-axis scale and labels
+            // Draw left Y-axis scale and labels
             ctx.fillStyle = '#c9d1d9';
             ctx.font = '10px Arial';
             ctx.textAlign = 'right';
             ctx.textBaseline = 'middle';
             
             const steps = 5;
+            
+            // Left axis
             for (let i = 0; i <= steps; i++) {
-                const value = range.min + (range.max - range.min) * (i / steps);
+                const value = leftRange.min + (leftRange.max - leftRange.min) * (i / steps);
                 const y = chartHeight - (i / steps) * chartHeight + 10;
                 
-                // Draw tick mark
-                ctx.strokeStyle = '#333';
+                // Draw left tick mark
+                ctx.strokeStyle = leftDataset.color;
                 ctx.lineWidth = 1;
                 ctx.beginPath();
-                ctx.moveTo(padding - 5, y);
-                ctx.lineTo(padding, y);
+                ctx.moveTo(leftPadding - 5, y);
+                ctx.lineTo(leftPadding, y);
                 ctx.stroke();
                 
-                // Draw label
-                ctx.fillText(value.toFixed(0), padding - 8, y);
+                // Draw left label with color coding
+                ctx.fillStyle = leftDataset.color;
+                ctx.fillText(value.toFixed(leftRange.decimals || 0), leftPadding - 8, y);
                 
-                // Draw grid line
+                // Draw grid line (subtle)
                 if (i > 0 && i < steps) {
                     ctx.strokeStyle = '#222';
                     ctx.lineWidth = 1;
                     ctx.beginPath();
-                    ctx.moveTo(padding, y);
-                    ctx.lineTo(width, y);
+                    ctx.moveTo(leftPadding, y);
+                    ctx.lineTo(leftPadding + chartWidth, y);
                     ctx.stroke();
                 }
+            }
+            
+            // Right axis
+            ctx.textAlign = 'left';
+            for (let i = 0; i <= steps; i++) {
+                const value = rightRange.min + (rightRange.max - rightRange.min) * (i / steps);
+                const y = chartHeight - (i / steps) * chartHeight + 10;
+                
+                // Draw right tick mark
+                ctx.strokeStyle = rightDataset.color;
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(leftPadding + chartWidth, y);
+                ctx.lineTo(leftPadding + chartWidth + 5, y);
+                ctx.stroke();
+                
+                // Draw right label with color coding
+                ctx.fillStyle = rightDataset.color;
+                ctx.fillText(value.toFixed(rightRange.decimals || 0), leftPadding + chartWidth + 8, y);
             }
             
             // Draw vertical grid lines
             ctx.strokeStyle = '#222';
             ctx.lineWidth = 1;
             for (let i = 1; i < 10; i++) {
-                const x = padding + (i / 10) * chartWidth;
+                const x = leftPadding + (i / 10) * chartWidth;
                 ctx.beginPath();
                 ctx.moveTo(x, 10);
                 ctx.lineTo(x, chartHeight + 10);
                 ctx.stroke();
             }
             
-            // Draw datasets
-            datasets.forEach(dataset => {
-                if (dataset.data.length < 2) return;
-                
-                ctx.strokeStyle = dataset.color;
+            // Draw left dataset
+            if (leftDataset.data.length >= 2) {
+                ctx.strokeStyle = leftDataset.color;
                 ctx.lineWidth = 2;
                 ctx.beginPath();
                 
-                dataset.data.forEach((value, index) => {
-                    const x = padding + (index / (maxDataPoints - 1)) * chartWidth;
-                    const y = (chartHeight + 10) - ((value - range.min) / (range.max - range.min)) * chartHeight;
+                leftDataset.data.forEach((value, index) => {
+                    const x = leftPadding + (index / (maxDataPoints - 1)) * chartWidth;
+                    const y = (chartHeight + 10) - ((value - leftRange.min) / (leftRange.max - leftRange.min)) * chartHeight;
                     
                     if (index === 0) {
                         ctx.moveTo(x, y);
@@ -1925,12 +1953,54 @@ namespace wifi_monitor
                 });
                 
                 ctx.stroke();
-            });
+            }
+            
+            // Draw right dataset
+            if (rightDataset.data.length >= 2) {
+                ctx.strokeStyle = rightDataset.color;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                
+                rightDataset.data.forEach((value, index) => {
+                    const x = leftPadding + (index / (maxDataPoints - 1)) * chartWidth;
+                    const y = (chartHeight + 10) - ((value - rightRange.min) / (rightRange.max - rightRange.min)) * chartHeight;
+                    
+                    if (index === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                });
+                
+                ctx.stroke();
+            }
             
             // Draw chart border
             ctx.strokeStyle = '#555';
             ctx.lineWidth = 1;
-            ctx.strokeRect(padding, 10, chartWidth, chartHeight);
+            ctx.strokeRect(leftPadding, 10, chartWidth, chartHeight);
+            
+            // Draw axis labels
+            ctx.fillStyle = '#c9d1d9';
+            ctx.font = '12px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            
+            // Left axis label
+            ctx.save();
+            ctx.translate(15, height / 2);
+            ctx.rotate(-Math.PI / 2);
+            ctx.fillStyle = leftDataset.color;
+            ctx.fillText(leftDataset.label + ' (' + leftRange.unit + ')', 0, 0);
+            ctx.restore();
+            
+            // Right axis label
+            ctx.save();
+            ctx.translate(width - 15, height / 2);
+            ctx.rotate(Math.PI / 2);
+            ctx.fillStyle = rightDataset.color;
+            ctx.fillText(rightDataset.label + ' (' + rightRange.unit + ')', 0, 0);
+            ctx.restore();
         }
         
         function exportData() {

@@ -892,6 +892,85 @@ namespace wifi_monitor
                 font-size: 1.5rem;
             }
         }
+        .console-container {
+            background-color: #0f1419;
+            padding: 1rem;
+            border-radius: 8px;
+            margin: 1rem 0;
+            border: 1px solid #333;
+            font-family: 'Courier New', monospace;
+            font-size: 0.8rem;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .console-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid #333;
+        }
+        .console-title {
+            color: var(--accent-green);
+            font-weight: 600;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .console-controls {
+            display: flex;
+            gap: 0.5rem;
+        }
+        .console-btn {
+            background-color: #333;
+            color: #c9d1d9;
+            border: none;
+            padding: 0.25rem 0.5rem;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 0.7rem;
+            transition: background-color 0.2s;
+        }
+        .console-btn:hover {
+            background-color: #444;
+        }
+        .console-btn.active {
+            background-color: var(--accent-green);
+            color: white;
+        }
+        .console-output {
+            background-color: #000;
+            padding: 0.75rem;
+            border-radius: 4px;
+            min-height: 200px;
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #222;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .console-line {
+            margin: 0.1rem 0;
+            line-height: 1.2;
+        }
+        .console-timestamp {
+            color: #666;
+        }
+        .console-level-I {
+            color: #2ea043;
+        }
+        .console-level-W {
+            color: #d29922;
+        }
+        .console-level-E {
+            color: #f85149;
+        }
+        .console-component {
+            color: #58a6ff;
+            font-weight: bold;
+        }
+        .console-message {
+            color: #c9d1d9;
+        }
     </style>
 </head>
 <body>
@@ -931,6 +1010,25 @@ namespace wifi_monitor
             <div class="detail-item">
                 <span class="label">Safety Margin:</span>
                 <span id="telemetrySafety">-- m</span>
+            </div>
+        </div>
+    </div>
+    
+    <div class="container">
+        <div class="console-container">
+            <div class="console-header">
+                <div class="console-title">System Console</div>
+                <div class="console-controls">
+                    <button class="console-btn active" id="consoleRunBtn">▶️ Running</button>
+                    <button class="console-btn" id="consolePauseBtn">⏸️ Pause</button>
+                    <button class="console-btn" id="consoleClearBtn">🗑️ Clear</button>
+                </div>
+            </div>
+            <div class="console-output" id="consoleOutput">
+                <div class="console-line">
+                    <span class="console-timestamp">[System Ready]</span>
+                    <span class="console-message"> WiFi Monitor Console initialized - live system logs will appear here...</span>
+                </div>
             </div>
         </div>
     </div>
@@ -1099,6 +1197,11 @@ namespace wifi_monitor
         let reconnectInterval = null;
         let httpFallbackInterval = null;
 
+        // Console functionality
+        let consoleRunning = true;
+        let consoleLines = [];
+        const MAX_CONSOLE_LINES = 100;
+
         // File streaming variables
         let dataStreamWs = null;
         let currentLogFile = null;
@@ -1187,6 +1290,11 @@ namespace wifi_monitor
                     // Update physics charts with real telemetry data
                     if (document.getElementById('physicsCharts').style.display === 'block') {
                         updatePhysicsDisplay(data.telemetry);
+                    }
+                    
+                    // Update console with system logs
+                    if (data.logs && Array.isArray(data.logs)) {
+                        data.logs.forEach(logLine => addConsoleLog(logLine));
                     }
                     
                     const typeLi = document.createElement('li');
@@ -1291,6 +1399,11 @@ namespace wifi_monitor
                     updatePhysicsDisplay(data.telemetry);
                 }
                 
+                // Update console with system logs
+                if (data.logs && Array.isArray(data.logs)) {
+                    data.logs.forEach(logLine => addConsoleLog(logLine));
+                }
+                
                 const typeLi = document.createElement('li');
                 typeLi.textContent = `Transport: HTTP fallback`;
                 list.appendChild(typeLi);
@@ -1317,6 +1430,97 @@ namespace wifi_monitor
 
         // Start with WebSocket
         connectWebSocket();
+        
+        // Console functions
+        function addConsoleLog(logLine) {
+            if (!consoleRunning) return;
+            
+            const now = new Date();
+            const timestamp = now.toTimeString().split(' ')[0];
+            
+            // Parse ESP-IDF log format: I (timestamp) COMPONENT: message
+            let parsedLog = parseESPLog(logLine);
+            if (!parsedLog) {
+                // Fallback for non-standard format
+                parsedLog = {
+                    level: 'I',
+                    timestamp: timestamp,
+                    component: 'SYSTEM',
+                    message: logLine
+                };
+            }
+            
+            consoleLines.push(parsedLog);
+            if (consoleLines.length > MAX_CONSOLE_LINES) {
+                consoleLines.shift();
+            }
+            
+            updateConsoleDisplay();
+        }
+        
+        function parseESPLog(logLine) {
+            // Parse ESP-IDF format: I (281223) CONTROL: [logDiagnostics] DUTY_TEST: ...
+            const match = logLine.match(/^([IWED])\s*\((\d+)\)\s*([^:]+):\s*(.+)$/);
+            if (match) {
+                return {
+                    level: match[1],
+                    timestamp: `(${match[2]})`,
+                    component: match[3].trim(),
+                    message: match[4]
+                };
+            }
+            return null;
+        }
+        
+        function updateConsoleDisplay() {
+            const output = document.getElementById('consoleOutput');
+            if (!output) return;
+            
+            // Keep scroll position if user hasn't scrolled up
+            const shouldAutoScroll = output.scrollTop >= output.scrollHeight - output.clientHeight - 20;
+            
+            output.innerHTML = '';
+            
+            consoleLines.forEach(log => {
+                const lineDiv = document.createElement('div');
+                lineDiv.className = 'console-line';
+                
+                lineDiv.innerHTML = `
+                    <span class="console-timestamp">${log.timestamp}</span>
+                    <span class="console-level-${log.level}">${log.level}</span>
+                    <span class="console-component">${log.component}:</span>
+                    <span class="console-message">${log.message}</span>
+                `;
+                
+                output.appendChild(lineDiv);
+            });
+            
+            // Auto-scroll to bottom if user was at bottom
+            if (shouldAutoScroll) {
+                output.scrollTop = output.scrollHeight;
+            }
+        }
+        
+        function toggleConsole() {
+            consoleRunning = !consoleRunning;
+            const runBtn = document.getElementById('consoleRunBtn');
+            const pauseBtn = document.getElementById('consolePauseBtn');
+            
+            if (consoleRunning) {
+                runBtn.classList.add('active');
+                pauseBtn.classList.remove('active');
+            } else {
+                runBtn.classList.remove('active');
+                pauseBtn.classList.add('active');
+            }
+        }
+        
+        function clearConsole() {
+            consoleLines = [];
+            updateConsoleDisplay();
+            // Add system message
+            addConsoleLog('I (0) SYSTEM: Console cleared by user');
+        }
         
         // File streaming functions for data logging
         function connectDataStream() {
@@ -1906,8 +2110,8 @@ namespace wifi_monitor
             const canvas = ctx.canvas;
             const width = canvas.width;
             const height = canvas.height;
-            const leftPadding = 60; // More space for left Y-axis labels
-            const rightPadding = 60; // More space for right Y-axis labels
+            const leftPadding = 35; // Reduced padding for wider charts
+            const rightPadding = 35; // Reduced padding for wider charts
             const chartWidth = width - leftPadding - rightPadding;
             const chartHeight = height - 20; // Reduced bottom padding since no axis labels
             
@@ -1938,7 +2142,7 @@ namespace wifi_monitor
                 
                 // Draw left label with color coding
                 ctx.fillStyle = leftDataset.color;
-                ctx.fillText(value.toFixed(leftRange.decimals || 0), leftPadding - 10, y);
+                ctx.fillText(value.toFixed(leftRange.decimals || 0), leftPadding - 8, y);
                 
                 // Draw grid line (subtle)
                 if (i > 0 && i < steps) {
@@ -1967,7 +2171,7 @@ namespace wifi_monitor
                 
                 // Draw right label with color coding
                 ctx.fillStyle = rightDataset.color;
-                ctx.fillText(value.toFixed(rightRange.decimals || 0), leftPadding + chartWidth + 10, y);
+                ctx.fillText(value.toFixed(rightRange.decimals || 0), leftPadding + chartWidth + 8, y);
             }
             
             // Draw vertical grid lines
@@ -2173,6 +2377,15 @@ namespace wifi_monitor
         // Initialize everything
         initLogging();
         
+        // Initialize console controls
+        document.getElementById('consoleRunBtn').addEventListener('click', () => {
+            if (!consoleRunning) toggleConsole();
+        });
+        document.getElementById('consolePauseBtn').addEventListener('click', () => {
+            if (consoleRunning) toggleConsole();
+        });
+        document.getElementById('consoleClearBtn').addEventListener('click', clearConsole);
+        
         console.log('Dashboard initialized with WebSocket + HTTP fallback');
     </script>
 </body>
@@ -2297,6 +2510,36 @@ namespace wifi_monitor
                 cJSON_AddItemToArray(tasks, task);
             }
             cJSON_AddItemToObject(root, "tasks", tasks);
+
+            // Add recent system logs for console display
+            cJSON *logs = cJSON_CreateArray();
+            // Add some sample diagnostic logs to test the console
+            cJSON_AddItemToArray(logs, cJSON_CreateString("I (281223) CONTROL: [logDiagnostics] DUTY_TEST: cached=0.0856, direct=0.0856, old_throttle=NO, new_throttle=NO"));
+            cJSON_AddItemToArray(logs, cJSON_CreateString("I (283223) CONTROL: [logDiagnostics] DUTY_TEST: cached=0.0856, direct=0.0856, old_throttle=NO, new_throttle=NO"));
+            
+            // Add dynamic logs based on telemetry state
+            if (instance_->telemetry_mutex_ && xSemaphoreTake(instance_->telemetry_mutex_, pdMS_TO_TICKS(10)))
+            {
+                char log_buffer[256];
+                if (instance_->telemetry_data_.warning) {
+                    snprintf(log_buffer, sizeof(log_buffer), 
+                        "W (%u) SPEED_CONTROLLER: Dynamic warning! Speed=%.4f, ActualDist=%.2fm", 
+                        (unsigned int)(xTaskGetTickCount() * portTICK_PERIOD_MS), 
+                        instance_->telemetry_data_.speed_est, 
+                        instance_->telemetry_data_.distance);
+                    cJSON_AddItemToArray(logs, cJSON_CreateString(log_buffer));
+                }
+                if (instance_->telemetry_data_.obstacle) {
+                    snprintf(log_buffer, sizeof(log_buffer), 
+                        "E (%u) SPEED_CONTROLLER: EMERGENCY BRAKE! Distance=%.2fm", 
+                        (unsigned int)(xTaskGetTickCount() * portTICK_PERIOD_MS), 
+                        instance_->telemetry_data_.distance);
+                    cJSON_AddItemToArray(logs, cJSON_CreateString(log_buffer));
+                }
+                xSemaphoreGive(instance_->telemetry_mutex_);
+            }
+            
+            cJSON_AddItemToObject(root, "logs", logs);
 
             char *json_string = cJSON_PrintUnformatted(root);
             cJSON_Delete(root);

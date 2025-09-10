@@ -6,8 +6,20 @@
 #include "BehaviorModel.hpp"
 #include "IDataSource.hpp" // For DataEntry
 #include <ComponentBase.hpp>
+
+// Forward declarations for hardware interfaces
+namespace lidar {
+    class LiDAR;
+    struct ObstacleInfo;
+}
+
+namespace adas {
+    class PwmDriver;
+}
 #include <esp_err.h>
 #include <memory>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include <vector>
 #include <functional>
 
@@ -26,7 +38,12 @@ namespace digitoys::datamodeling
     class DataModeling : public digitoys::core::ComponentBase
     {
     public:
-        DataModeling();
+        /**
+         * @brief Constructor with hardware interfaces
+         * @param lidar_sensor LiDAR sensor for obstacle detection
+         * @param pwm_driver PWM driver for RC input reading
+         */
+        DataModeling(lidar::LiDAR* lidar_sensor = nullptr, adas::PwmDriver* pwm_driver = nullptr);
         virtual ~DataModeling();
 
         // IComponent interface implementation
@@ -41,6 +58,19 @@ namespace digitoys::datamodeling
          * @return Enhanced behavior data point
          */
         BehaviorDataPoint processRawData(const std::vector<digitoys::datalogger::DataEntry>& raw_data);
+
+        /**
+         * @brief Collect and process real-time sensor data directly
+         * @return Processed behavior data point from current sensor readings
+         */
+        BehaviorDataPoint collectRealTimeData();
+
+        /**
+         * @brief Enable/disable real-time data collection task
+         * @param enabled True to start collecting, false to stop
+         * @param collection_rate_ms Data collection interval in milliseconds
+         */
+        esp_err_t setRealTimeCollection(bool enabled, uint32_t collection_rate_ms = 100);
 
         /**
          * @brief Start a new test session
@@ -124,8 +154,17 @@ namespace digitoys::datamodeling
     private:
         static const char* TAG;
 
+        // Hardware interfaces (for direct sensor access)
+        lidar::LiDAR* lidar_sensor_;
+        adas::PwmDriver* pwm_driver_;
+
+        // Real-time collection task
+        TaskHandle_t collection_task_handle_ = nullptr;
+        bool real_time_collection_enabled_ = false;
+        uint32_t collection_rate_ms_ = 100;
+
         // Component instances
-                std::unique_ptr<TestSessionManager> session_manager_;
+        std::unique_ptr<TestSessionManager> session_manager_;
         std::unique_ptr<PhysicsAnalyzer> physics_analyzer_;
 
         // Data storage
@@ -166,6 +205,17 @@ namespace digitoys::datamodeling
          * @return Session info string
          */
         std::string generateSessionHeader(uint32_t session_id) const;
+
+        /**
+         * @brief Real-time data collection task
+         */
+        void realTimeCollectionTask();
+
+        /**
+         * @brief Read current sensor values directly
+         * @return Raw sensor data as BehaviorDataPoint
+         */
+        BehaviorDataPoint readSensorData();
     };
 
 } // namespace digitoys::datamodeling

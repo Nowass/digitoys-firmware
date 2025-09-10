@@ -53,10 +53,13 @@ extern "C" void app_main()
     ESP_LOGI(TAG, "DataLogger service initialized and started");
 
     // --- DataModeling Service for Behavior Analysis ---
-    static digitoys::datamodeling::DataModeling data_modeling;
+    static digitoys::datamodeling::DataModeling data_modeling(&lidar, &pwm_driver);
     ESP_ERROR_CHECK(data_modeling.initialize());
     ESP_ERROR_CHECK(data_modeling.start());
     ESP_LOGI(TAG, "DataModeling service initialized and started");
+
+    // Enable real-time sensor data collection (100ms intervals)
+    ESP_ERROR_CHECK(data_modeling.setRealTimeCollection(true, 100));
 
     // --- Connect DataLogger to DataModeling Pipeline ---
     // Enable streaming mode for real-time data processing

@@ -1,7 +1,11 @@
 #include "DataModeling.hpp"
 #include "IDataSource.hpp" // For DataEntry
+#include "LiDAR.hpp"       // For LiDAR access
+#include "adas_pwm_driver.hpp" // For PWM/RC access
 #include <esp_log.h>
 #include <esp_timer.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 #include <sstream>
 #include <iomanip>
 
@@ -9,8 +13,8 @@ namespace digitoys::datamodeling
 {
     const char* DataModeling::TAG = "DataModeling";
 
-    DataModeling::DataModeling() 
-        : ComponentBase("DataModeling")
+    DataModeling::DataModeling(lidar::LiDAR* lidar_sensor, adas::PwmDriver* pwm_driver) 
+        : ComponentBase("DataModeling"), lidar_sensor_(lidar_sensor), pwm_driver_(pwm_driver)
     {
         session_manager_ = std::make_unique<TestSessionManager>();
         physics_analyzer_ = std::make_unique<PhysicsAnalyzer>();
@@ -75,6 +79,67 @@ namespace digitoys::datamodeling
         return ESP_OK;
     }
 
+    BehaviorDataPoint DataModeling::collectRealTimeData()
+    {
+        if (!lidar_sensor_ || !pwm_driver_)
+        {
+            ESP_LOGW(TAG, "Hardware interfaces not available for real-time collection");
+            return BehaviorDataPoint{};
+        }
+
+        return readSensorData();
+    }
+
+    esp_err_t DataModeling::setRealTimeCollection(bool enabled, uint32_t collection_rate_ms)
+    {
+        if (enabled && !real_time_collection_enabled_)
+        {
+            if (!lidar_sensor_ || !pwm_driver_)
+            {
+                ESP_LOGE(TAG, "Cannot start real-time collection: hardware interfaces not available");
+                return ESP_ERR_INVALID_STATE;
+            }
+
+            collection_rate_ms_ = collection_rate_ms;
+            real_time_collection_enabled_ = true;
+
+            // Create data collection task
+            BaseType_t task_created = xTaskCreate(
+                [](void* param) {
+                    static_cast<DataModeling*>(param)->realTimeCollectionTask();
+                },
+                "DataModelingTask",
+                4096,  // Stack size
+                this,
+                5,     // Priority
+                &collection_task_handle_
+            );
+
+            if (task_created != pdPASS)
+            {
+                real_time_collection_enabled_ = false;
+                ESP_LOGE(TAG, "Failed to create real-time collection task");
+                return ESP_ERR_NO_MEM;
+            }
+
+            ESP_LOGI(TAG, "Real-time data collection started (rate: %lu ms)", collection_rate_ms);
+        }
+        else if (!enabled && real_time_collection_enabled_)
+        {
+            real_time_collection_enabled_ = false;
+            
+            if (collection_task_handle_)
+            {
+                vTaskDelete(collection_task_handle_);
+                collection_task_handle_ = nullptr;
+            }
+            
+            ESP_LOGI(TAG, "Real-time data collection stopped");
+        }
+
+        return ESP_OK;
+    }
+
     BehaviorDataPoint DataModeling::processRawData(const std::vector<digitoys::datalogger::DataEntry>& raw_data)
     {
         // Convert raw data to behavior data point
@@ -98,8 +163,13 @@ namespace digitoys::datamodeling
             session_manager_->updateSessionStats(data_point);
         }
 
-        // Store the data point
+        // Store the data point with size limit to prevent memory overflow
+        constexpr size_t MAX_STORED_POINTS = 100; // Keep only last 100 points (10 seconds at 100ms rate)
         behavior_data_.push_back(data_point);
+        if (behavior_data_.size() > MAX_STORED_POINTS)
+        {
+            behavior_data_.erase(behavior_data_.begin());
+        }
         total_data_points_++;
 
         // Call data callback if set
@@ -401,6 +471,103 @@ namespace digitoys::datamodeling
         header << "# Total Distance: " << std::fixed << std::setprecision(1) << session->total_distance << " m";
         
         return header.str();
+    }
+
+    void DataModeling::realTimeCollectionTask()
+    {
+        ESP_LOGI(TAG, "Real-time data collection task started");
+        
+        TickType_t xLastWakeTime = xTaskGetTickCount();
+        const TickType_t xFrequency = pdMS_TO_TICKS(collection_rate_ms_);
+
+        while (real_time_collection_enabled_)
+        {
+            // Collect sensor data
+            BehaviorDataPoint data_point = readSensorData();
+            
+            // Add session information
+            data_point.session_data.session_id = session_manager_->getCurrentSessionId();
+            data_point.session_data.absolute_timestamp_us = esp_timer_get_time();
+            data_point.session_data.session_relative_ms = session_manager_->getSessionRelativeTime(
+                data_point.session_data.absolute_timestamp_us);
+
+            // Enhance with physics analysis
+            if (physics_analyzer_)
+            {
+                physics_analyzer_->analyzeDataPoint(data_point, collection_rate_ms_);
+            }
+
+            // Update session statistics
+            if (session_manager_->isSessionActive())
+            {
+                session_manager_->updateSessionStats(data_point);
+            }
+
+            // Store the data point with size limit to prevent memory overflow
+            constexpr size_t MAX_STORED_POINTS = 100; // Keep only last 100 points (10 seconds at 100ms rate)
+            behavior_data_.push_back(data_point);
+            if (behavior_data_.size() > MAX_STORED_POINTS)
+            {
+                behavior_data_.erase(behavior_data_.begin());
+            }
+            total_data_points_++;
+
+            // Call data callback if set
+            if (data_callback_)
+            {
+                data_callback_(data_point);
+            }
+
+            // Log occasionally for debugging
+            static uint32_t log_counter = 0;
+            if (++log_counter % 50 == 0) // Every 5 seconds at 100ms rate
+            {
+                ESP_LOGD(TAG, "Collected %lu data points, Session: %lu, Speed: %.2f, Distance: %.1f", 
+                        total_data_points_, data_point.session_data.session_id, 
+                        data_point.physics_data.calculated_speed, data_point.safety_data.obstacle_distance);
+            }
+
+            // Wait for next collection cycle
+            vTaskDelayUntil(&xLastWakeTime, xFrequency);
+        }
+
+        ESP_LOGI(TAG, "Real-time data collection task finished");
+        vTaskDelete(nullptr);
+    }
+
+    BehaviorDataPoint DataModeling::readSensorData()
+    {
+        BehaviorDataPoint data_point;
+        
+        // Read LiDAR data
+        if (lidar_sensor_)
+        {
+            auto obstacle_info = lidar_sensor_->getObstacleInfo();
+            data_point.safety_data.obstacle_distance = obstacle_info.distance;
+            data_point.safety_data.is_obstacle_state = obstacle_info.obstacle;
+            data_point.safety_data.is_warning_state = obstacle_info.warning;
+            
+            // Calculate brake and warning distances (basic implementation)
+            data_point.safety_data.brake_distance = 50.0f; // Would be calculated based on speed
+            data_point.safety_data.warning_distance = 75.0f;
+            data_point.safety_data.safety_margin = data_point.safety_data.obstacle_distance - data_point.safety_data.brake_distance;
+        }
+
+        // Read RC input data  
+        if (pwm_driver_)
+        {
+            // Get current duty cycle (represents RC input)
+            float current_duty = pwm_driver_->lastDuty(0); // Channel 0 for throttle
+            data_point.rc_control.rc_input = current_duty;
+            data_point.rc_control.throttle_pressed = (current_duty > 0.1f);
+            data_point.rc_control.driving_forward = (current_duty > 0.15f);
+            data_point.rc_control.wants_reverse = false; // Would need additional logic
+            
+            // Calculate estimated speed from RC input (basic implementation)
+            data_point.physics_data.calculated_speed = current_duty * 5.0f; // m/s, rough estimate
+        }
+
+        return data_point;
     }
 
 } // namespace digitoys::datamodeling

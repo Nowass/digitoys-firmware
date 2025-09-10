@@ -929,8 +929,7 @@ namespace wifi_monitor
         <div class="log-status">
             Status: <span id="logStatus">Stopped</span> | 
             Entries: <span id="logEntries">0</span> | 
-            Size: <span id="logSize">0 KB</span> |
-            Rate: <span id="dataRate">0 Hz</span>
+            Size: <span id="logSize">0 KB</span>
         </div>
         <div class="log-controls">
             <button class="btn" id="startBtn">Start Logging</button>
@@ -1082,6 +1081,12 @@ namespace wifi_monitor
         let pendingDataRows = new Map(); // timestamp -> {data entries}
         let flushTimeout = null;
         const FLUSH_TIMEOUT_MS = 100; // Flush incomplete rows after 100ms
+        
+        // Streaming statistics tracking
+        let streamingStartTime = null;
+        let streamingEntryCount = 0;
+        let streamingRowCount = 0; // Track completed CSV rows (complete datasets)
+        let lastStreamingUpdate = null;
 
         function connectWebSocket() {
             const wsUrl = `ws://${window.location.host}/ws`;
@@ -1295,6 +1300,13 @@ namespace wifi_monitor
                     try {
                         const data = JSON.parse(event.data);
                         console.log('Received data entry:', data);  // Debug log
+                        
+                        // Update streaming statistics
+                        streamingEntryCount++;
+                        if (!streamingStartTime) {
+                            streamingStartTime = Date.now();
+                        }
+                        
                         const timestamp = Math.floor(data.timestamp_us / 1000); // Convert to ms for grouping
                         
                         // Initialize row if not exists
@@ -1365,6 +1377,12 @@ namespace wifi_monitor
                 const header = 'timestamp_us,rc_input,distance,speed,safety_margin,obstacle_detected,warning_active\n';
                 await logFileWriter.write(header);
                 
+                // Reset streaming statistics
+                streamingStartTime = null;
+                streamingEntryCount = 0;
+                streamingRowCount = 0;
+                pendingDataRows.clear();
+                
                 streamingActive = true;
                 connectDataStream();
                 console.log('File streaming started with picker:', logFileName);
@@ -1378,6 +1396,13 @@ namespace wifi_monitor
         function createFileWithFallback() {
             // Fallback: accumulate data in memory
             currentLogFile = [];
+            
+            // Reset streaming statistics
+            streamingStartTime = null;
+            streamingEntryCount = 0;
+            streamingRowCount = 0;
+            pendingDataRows.clear();
+            
             streamingActive = true;
             connectDataStream();
             console.log('File streaming started with fallback (memory accumulation)');
@@ -1470,6 +1495,7 @@ namespace wifi_monitor
                 const csvLine = convertAggregatedToCSV(rowData) + '\n';
                 console.log('Writing CSV line:', csvLine);  // Debug log
                 logFileWriter.write(csvLine);
+                streamingRowCount++; // Increment completed dataset counter
             }
             pendingDataRows.clear();
         }
@@ -1614,7 +1640,6 @@ namespace wifi_monitor
                     document.getElementById('stopBtn').disabled = true;
                     
                     document.getElementById('sessionTime').textContent = '00:00:00';
-                    document.getElementById('dataRate').textContent = '0 Hz';
                     
                     // Check if we have logged data to decide chart visibility
                     updatePhysicsChartsVisibility();
@@ -1696,25 +1721,36 @@ namespace wifi_monitor
         function refreshLogData() {
             if (!loggingActive) return;
             
-            // Get current logging status and entry count
+            // Use local streaming statistics when file streaming is active
+            if (streamingActive && streamingStartTime) {
+                const now = Date.now();
+                const elapsedSeconds = (now - streamingStartTime) / 1000;
+                const estimatedRowsFromPending = Math.floor(streamingEntryCount / 5); // Rough estimate of pending rows
+                const totalRows = streamingRowCount + estimatedRowsFromPending;
+                
+                updateLogEntries(totalRows); // Show completed datasets (CSV rows)
+                updateLogSize(Math.floor(totalRows * 0.05)); // Estimate size in KB based on rows
+                updateLastEntry();
+                // Remove data rate display - not meaningful for users
+                document.getElementById('memoryUsage').textContent = Math.min((totalRows / 1000) * 100, 100).toFixed(1) + '%';
+                
+                lastUpdateTime = now;
+                return;
+            }
+            
+            // Fallback to server-side logging status (for diagnostic logging)
             fetch('/logging/control')
             .then(response => response.json())
             .then(data => {
                 if (data.logging_active) {
-                    // Calculate data rate
-                    var now = Date.now();
-                    var timeDiff = (now - lastUpdateTime) / 1000; // seconds
-                    var entryDiff = data.entry_count - lastEntryCount;
-                    var dataRate = timeDiff > 0 ? (entryDiff / timeDiff) : 0;
-                    
                     updateLogEntries(data.entry_count);
                     updateLogSize(Math.floor(data.entry_count * 0.1)); // Estimate size in KB
                     updateLastEntry();
-                    document.getElementById('dataRate').textContent = dataRate.toFixed(1) + ' Hz';
+                    // Remove data rate display - not meaningful for users
                     document.getElementById('memoryUsage').textContent = Math.min(data.entry_count / 10, 100).toFixed(1) + '%';
                     
                     lastEntryCount = data.entry_count;
-                    lastUpdateTime = now;
+                    lastUpdateTime = Date.now();
                     
                     // Fetch latest physics data for visualization
                     updatePhysicsDisplay();

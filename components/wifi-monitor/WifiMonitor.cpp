@@ -1158,6 +1158,11 @@ namespace wifi_monitor
                     // Update telemetry display
                     updateTelemetryDisplay(data.telemetry);
                     
+                    // Update physics charts with real telemetry data
+                    if (document.getElementById('physicsCharts').style.display === 'block') {
+                        updatePhysicsDisplay(data.telemetry);
+                    }
+                    
                     const typeLi = document.createElement('li');
                     typeLi.textContent = `Transport: ${data.type || 'WebSocket'}`;
                     list.appendChild(typeLi);
@@ -1254,6 +1259,11 @@ namespace wifi_monitor
                 
                 // Update telemetry display
                 updateTelemetryDisplay(data.telemetry);
+                
+                // Update physics charts with real telemetry data
+                if (document.getElementById('physicsCharts').style.display === 'block') {
+                    updatePhysicsDisplay(data.telemetry);
+                }
                 
                 const typeLi = document.createElement('li');
                 typeLi.textContent = `Transport: HTTP fallback`;
@@ -1755,8 +1765,8 @@ namespace wifi_monitor
                     lastEntryCount = data.entry_count;
                     lastUpdateTime = Date.now();
                     
-                    // Fetch latest physics data for visualization
-                    updatePhysicsDisplay();
+                    // Physics data is updated via WebSocket telemetry feed
+                    // No need to fetch separately during logging
                 }
             })
             .catch(error => console.error('Failed to refresh log data:', error));
@@ -1792,15 +1802,17 @@ namespace wifi_monitor
             safetyData = [];
         }
         
-        function updatePhysicsDisplay() {
-            // Simulate physics data (in real hardware, this would fetch from latest DataLogger entries)
-            var currentTime = Date.now();
+        function updatePhysicsDisplay(telemetryData) {
+            // Use real telemetry data for physics charts
+            if (!telemetryData) {
+                return; // No data available, skip update
+            }
             
-            // Simulate realistic vehicle physics data
-            var rcInput = Math.sin(currentTime / 2000) * 50 + 50; // 0-100 range
-            var distance = Math.abs(Math.sin(currentTime / 3000)) * 200 + 50; // 50-250 cm
-            var safetyMargin = Math.max(0, distance - 100); // Safety calculation
-            var speed = rcInput * 0.5; // Estimated speed from RC input
+            // Extract real vehicle physics data from telemetry
+            var rcInput = telemetryData.rc_input || 0; // RC input percentage
+            var distance = (telemetryData.distance || 0) * 100; // Convert m to cm for chart
+            var speed = telemetryData.speed_est || 0; // Speed in km/h
+            var safetyMargin = Math.max(0, distance - 100); // Safety calculation in cm
             
             // Update data arrays
             speedData.push(speed);

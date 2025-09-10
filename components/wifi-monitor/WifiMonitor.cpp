@@ -934,13 +934,16 @@ namespace wifi_monitor
         <div class="log-controls">
             <button class="btn" id="startBtn">Start Logging</button>
             <button class="btn btn-danger" id="stopBtn">Stop Logging</button>
-            <button class="btn btn-warning" id="exportBtn">Export Data</button>
+            <button class="btn btn-warning" id="exportBtn">Export Server Data</button>
             <button class="btn btn-secondary" id="clearBtn">Clear Data</button>
         </div>
         <div class="log-info">
             <div>Last entry: <span id="lastEntry">Never</span></div>
             <div>Session: <span id="sessionTime">00:00:00</span></div>
             <div>Memory usage: <span id="memoryUsage">0%</span></div>
+            <div style="margin-top: 0.5rem; font-size: 0.8rem; color: #888;">
+                💡 Live streaming data auto-saves when logging stops. Export Server Data for additional diagnostics.
+            </div>
         </div>
     </div>
     
@@ -1641,8 +1644,8 @@ namespace wifi_monitor
                     
                     document.getElementById('sessionTime').textContent = '00:00:00';
                     
-                    // Check if we have logged data to decide chart visibility
-                    updatePhysicsChartsVisibility();
+                    // Keep charts visible after stopping - they should persist until user clears data
+                    // Charts will only be hidden when user explicitly clicks "Clear Data"
                     
                     // Stop file streaming
                     stopFileStreaming();

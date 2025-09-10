@@ -5,6 +5,7 @@
 #include <esp_wifi.h>
 #include <esp_event.h>
 #include <esp_netif.h>
+#include <esp_log.h>
 #include <apps/dhcpserver/dhcpserver.h> // For dhcps_lease_t
 #include <nvs_flash.h>
 #include <esp_mac.h>
@@ -19,6 +20,7 @@
 #include <esp_heap_caps.h>
 #include <freertos/task.h>
 #include <cJSON.h>
+#include <stdarg.h>
 
 namespace wifi_monitor
 {
@@ -74,6 +76,19 @@ namespace wifi_monitor
             return ESP_ERR_NO_MEM;
         }
 
+        system_log_mutex_ = xSemaphoreCreateMutex();
+        if (system_log_mutex_ == nullptr)
+        {
+            DIGITOYS_LOGE("WifiMonitor", "Failed to create system log mutex");
+            vSemaphoreDelete(telemetry_mutex_);
+            vSemaphoreDelete(ws_clients_mutex_);
+            vSemaphoreDelete(diagnostic_mutex_);
+            telemetry_mutex_ = nullptr;
+            ws_clients_mutex_ = nullptr;
+            diagnostic_mutex_ = nullptr;
+            return ESP_ERR_NO_MEM;
+        }
+
         // Initialize telemetry data with timestamp
         telemetry_data_.timestamp = esp_timer_get_time() / 1000; // Convert to milliseconds
 
@@ -125,6 +140,10 @@ namespace wifi_monitor
         }
 
         setState(digitoys::core::ComponentState::RUNNING);
+
+        // Set up system log capture hook
+        esp_log_set_vprintf(logHook);
+
         DIGITOYS_LOGI("WifiMonitor", "WiFi Monitor component started successfully");
         DIGITOYS_LOGI("WifiMonitor", "Access Point: SSID='%s', IP=%s",
                       digitoys::constants::wifi_monitor::AP_SSID,
@@ -163,6 +182,9 @@ namespace wifi_monitor
             DIGITOYS_LOGW("WifiMonitor", "Failed to teardown WiFi: %s", esp_err_to_name(ret));
         }
 
+        // Restore original vprintf
+        esp_log_set_vprintf(vprintf);
+
         instance_ = nullptr;
         setState(digitoys::core::ComponentState::STOPPED);
         DIGITOYS_LOGI("WifiMonitor", "WiFi Monitor component stopped");
@@ -199,12 +221,21 @@ namespace wifi_monitor
             diagnostic_mutex_ = nullptr;
         }
 
+        if (system_log_mutex_)
+        {
+            vSemaphoreDelete(system_log_mutex_);
+            system_log_mutex_ = nullptr;
+        }
+
         // Clear WebSocket clients vector
         websocket_clients_.clear();
 
         // Clear diagnostic log
         diagnostic_log_.clear();
         logging_active_ = false;
+
+        // Clear system log buffer
+        system_log_buffer_.clear();
 
         setState(digitoys::core::ComponentState::UNINITIALIZED);
         DIGITOYS_LOGI("WifiMonitor", "WiFi Monitor component shutdown complete");
@@ -944,29 +975,44 @@ namespace wifi_monitor
             min-height: 200px;
             max-height: 300px;
             overflow-y: auto;
+            overflow-x: auto;
             border: 1px solid #222;
-            white-space: pre-wrap;
-            word-wrap: break-word;
+            white-space: nowrap;
+            word-wrap: normal;
+            font-family: 'Courier New', monospace;
         }
         .console-line {
             margin: 0.1rem 0;
             line-height: 1.2;
+            display: flex;
+            gap: 0.5rem;
+            align-items: baseline;
         }
         .console-timestamp {
             color: #666;
+            flex-shrink: 0;
+            min-width: 80px;
         }
         .console-level-I {
             color: #2ea043;
+            flex-shrink: 0;
+            min-width: 15px;
         }
         .console-level-W {
             color: #d29922;
+            flex-shrink: 0;
+            min-width: 15px;
         }
         .console-level-E {
             color: #f85149;
+            flex-shrink: 0;
+            min-width: 15px;
         }
         .console-component {
             color: #58a6ff;
             font-weight: bold;
+            flex-shrink: 0;
+            min-width: 100px;
         }
         .console-message {
             color: #c9d1d9;
@@ -1019,15 +1065,15 @@ namespace wifi_monitor
             <div class="console-header">
                 <div class="console-title">System Console</div>
                 <div class="console-controls">
-                    <button class="console-btn active" id="consoleRunBtn">▶️ Running</button>
-                    <button class="console-btn" id="consolePauseBtn">⏸️ Pause</button>
+                    <button class="console-btn" id="consoleRunBtn">▶️ Start</button>
+                    <button class="console-btn active" id="consolePauseBtn">⏸️ Paused</button>
                     <button class="console-btn" id="consoleClearBtn">🗑️ Clear</button>
                 </div>
             </div>
             <div class="console-output" id="consoleOutput">
                 <div class="console-line">
                     <span class="console-timestamp">[System Ready]</span>
-                    <span class="console-message"> WiFi Monitor Console initialized - live system logs will appear here...</span>
+                    <span class="console-message"> WiFi Monitor Console initialized - click ▶️ Start to begin logging...</span>
                 </div>
             </div>
         </div>
@@ -1198,7 +1244,7 @@ namespace wifi_monitor
         let httpFallbackInterval = null;
 
         // Console functionality
-        let consoleRunning = true;
+        let consoleRunning = false; // Start paused by default
         let consoleLines = [];
         const MAX_CONSOLE_LINES = 100;
 
@@ -1485,12 +1531,26 @@ namespace wifi_monitor
                 const lineDiv = document.createElement('div');
                 lineDiv.className = 'console-line';
                 
-                lineDiv.innerHTML = `
-                    <span class="console-timestamp">${log.timestamp}</span>
-                    <span class="console-level-${log.level}">${log.level}</span>
-                    <span class="console-component">${log.component}:</span>
-                    <span class="console-message">${log.message}</span>
-                `;
+                const timestampSpan = document.createElement('span');
+                timestampSpan.className = 'console-timestamp';
+                timestampSpan.textContent = log.timestamp;
+                
+                const levelSpan = document.createElement('span');
+                levelSpan.className = `console-level-${log.level}`;
+                levelSpan.textContent = log.level;
+                
+                const componentSpan = document.createElement('span');
+                componentSpan.className = 'console-component';
+                componentSpan.textContent = log.component + ':';
+                
+                const messageSpan = document.createElement('span');
+                messageSpan.className = 'console-message';
+                messageSpan.textContent = log.message;
+                
+                lineDiv.appendChild(timestampSpan);
+                lineDiv.appendChild(levelSpan);
+                lineDiv.appendChild(componentSpan);
+                lineDiv.appendChild(messageSpan);
                 
                 output.appendChild(lineDiv);
             });
@@ -1508,10 +1568,14 @@ namespace wifi_monitor
             
             if (consoleRunning) {
                 runBtn.classList.add('active');
+                runBtn.textContent = '⏸️ Running';
                 pauseBtn.classList.remove('active');
+                pauseBtn.textContent = '⏸️ Pause';
             } else {
                 runBtn.classList.remove('active');
+                runBtn.textContent = '▶️ Start';
                 pauseBtn.classList.add('active');
+                pauseBtn.textContent = '⏸️ Paused';
             }
         }
         
@@ -2445,7 +2509,7 @@ namespace wifi_monitor
         // Handle different frame types
         if (ws_pkt.type == HTTPD_WS_TYPE_TEXT)
         {
-            DIGITOYS_LOGI("WifiMonitor", "Received WebSocket text: %.*s", ws_pkt.len, (char *)ws_pkt.payload);
+            // DIGITOYS_LOGI("WifiMonitor", "Received WebSocket text: %.*s", ws_pkt.len, (char *)ws_pkt.payload);
 
             // Send system data as JSON response
             cJSON *root = cJSON_CreateObject();
@@ -2513,32 +2577,41 @@ namespace wifi_monitor
 
             // Add recent system logs for console display
             cJSON *logs = cJSON_CreateArray();
-            // Add some sample diagnostic logs to test the console
-            cJSON_AddItemToArray(logs, cJSON_CreateString("I (281223) CONTROL: [logDiagnostics] DUTY_TEST: cached=0.0856, direct=0.0856, old_throttle=NO, new_throttle=NO"));
-            cJSON_AddItemToArray(logs, cJSON_CreateString("I (283223) CONTROL: [logDiagnostics] DUTY_TEST: cached=0.0856, direct=0.0856, old_throttle=NO, new_throttle=NO"));
-            
+
+            // Get recent system logs from the captured log buffer
+            if (instance_)
+            {
+                std::vector<std::string> recent_logs = instance_->getRecentSystemLogs(20);
+                for (const auto &log_line : recent_logs)
+                {
+                    cJSON_AddItemToArray(logs, cJSON_CreateString(log_line.c_str()));
+                }
+            }
+
             // Add dynamic logs based on telemetry state
             if (instance_->telemetry_mutex_ && xSemaphoreTake(instance_->telemetry_mutex_, pdMS_TO_TICKS(10)))
             {
                 char log_buffer[256];
-                if (instance_->telemetry_data_.warning) {
-                    snprintf(log_buffer, sizeof(log_buffer), 
-                        "W (%u) SPEED_CONTROLLER: Dynamic warning! Speed=%.4f, ActualDist=%.2fm", 
-                        (unsigned int)(xTaskGetTickCount() * portTICK_PERIOD_MS), 
-                        instance_->telemetry_data_.speed_est, 
-                        instance_->telemetry_data_.distance);
+                if (instance_->telemetry_data_.warning)
+                {
+                    snprintf(log_buffer, sizeof(log_buffer),
+                             "W (%u) SPEED_CONTROLLER: Dynamic warning! Speed=%.4f, ActualDist=%.2fm",
+                             (unsigned int)(xTaskGetTickCount() * portTICK_PERIOD_MS),
+                             instance_->telemetry_data_.speed_est,
+                             instance_->telemetry_data_.distance);
                     cJSON_AddItemToArray(logs, cJSON_CreateString(log_buffer));
                 }
-                if (instance_->telemetry_data_.obstacle) {
-                    snprintf(log_buffer, sizeof(log_buffer), 
-                        "E (%u) SPEED_CONTROLLER: EMERGENCY BRAKE! Distance=%.2fm", 
-                        (unsigned int)(xTaskGetTickCount() * portTICK_PERIOD_MS), 
-                        instance_->telemetry_data_.distance);
+                if (instance_->telemetry_data_.obstacle)
+                {
+                    snprintf(log_buffer, sizeof(log_buffer),
+                             "E (%u) SPEED_CONTROLLER: EMERGENCY BRAKE! Distance=%.2fm",
+                             (unsigned int)(xTaskGetTickCount() * portTICK_PERIOD_MS),
+                             instance_->telemetry_data_.distance);
                     cJSON_AddItemToArray(logs, cJSON_CreateString(log_buffer));
                 }
                 xSemaphoreGive(instance_->telemetry_mutex_);
             }
-            
+
             cJSON_AddItemToObject(root, "logs", logs);
 
             char *json_string = cJSON_PrintUnformatted(root);
@@ -2596,7 +2669,7 @@ namespace wifi_monitor
         if (req->method == HTTP_GET)
         {
             DIGITOYS_LOGI("WifiMonitor", "WebSocket data streaming handshake from client");
-            
+
             // Add client to data streaming list
             if (xSemaphoreTake(instance_->ws_clients_mutex_, pdMS_TO_TICKS(1000)) == pdTRUE)
             {
@@ -2605,7 +2678,7 @@ namespace wifi_monitor
                 DIGITOYS_LOGI("WifiMonitor", "Added data streaming client: %d", sockfd);
                 xSemaphoreGive(instance_->ws_clients_mutex_);
             }
-            
+
             return ESP_OK;
         }
 
@@ -2627,8 +2700,8 @@ namespace wifi_monitor
             if (xSemaphoreTake(instance_->ws_clients_mutex_, pdMS_TO_TICKS(1000)) == pdTRUE)
             {
                 int sockfd = httpd_req_to_sockfd(req);
-                auto it = std::find(instance_->websocket_data_clients_.begin(), 
-                                  instance_->websocket_data_clients_.end(), sockfd);
+                auto it = std::find(instance_->websocket_data_clients_.begin(),
+                                    instance_->websocket_data_clients_.end(), sockfd);
                 if (it != instance_->websocket_data_clients_.end())
                 {
                     instance_->websocket_data_clients_.erase(it);
@@ -2638,13 +2711,14 @@ namespace wifi_monitor
             }
         }
 
-        if (buf) {
+        if (buf)
+        {
             free(buf);
         }
         return ESP_OK;
     }
 
-    esp_err_t WifiMonitor::broadcastDataEntry(const std::string& data_json)
+    esp_err_t WifiMonitor::broadcastDataEntry(const std::string &data_json)
     {
         if (xSemaphoreTake(ws_clients_mutex_, pdMS_TO_TICKS(100)) != pdTRUE)
         {
@@ -2654,7 +2728,7 @@ namespace wifi_monitor
         // Create WebSocket frame
         httpd_ws_frame_t ws_pkt;
         memset(&ws_pkt, 0, sizeof(httpd_ws_frame_t));
-        ws_pkt.payload = (uint8_t*)data_json.c_str();
+        ws_pkt.payload = (uint8_t *)data_json.c_str();
         ws_pkt.len = data_json.length();
         ws_pkt.type = HTTPD_WS_TYPE_TEXT;
 
@@ -2663,7 +2737,7 @@ namespace wifi_monitor
         while (it != websocket_data_clients_.end())
         {
             int sockfd = *it;
-            
+
             // Try to send data
             if (httpd_ws_send_frame_async(server_, sockfd, &ws_pkt) != ESP_OK)
             {
@@ -2683,29 +2757,33 @@ namespace wifi_monitor
 
     void WifiMonitor::setupDataLoggerStreaming()
     {
-        if (!data_logger_service_) {
+        if (!data_logger_service_)
+        {
             DIGITOYS_LOGW("WifiMonitor", "No DataLogger service available for streaming setup");
             return;
         }
 
-        auto* data_logger = data_logger_service_->getDataLogger();
-        if (!data_logger) {
+        auto *data_logger = data_logger_service_->getDataLogger();
+        if (!data_logger)
+        {
             DIGITOYS_LOGW("WifiMonitor", "No DataLogger instance available for streaming setup");
             return;
         }
 
         // Set up streaming callback
-        auto streaming_callback = [this](const digitoys::datalogger::DataEntry& entry, const std::string& source_name) {
+        auto streaming_callback = [this](const digitoys::datalogger::DataEntry &entry, const std::string &source_name)
+        {
             // Convert DataEntry to JSON and broadcast
-            cJSON* json = cJSON_CreateObject();
+            cJSON *json = cJSON_CreateObject();
             cJSON_AddStringToObject(json, "source", source_name.c_str());
             cJSON_AddStringToObject(json, "key", entry.key.c_str());
             cJSON_AddStringToObject(json, "value", entry.value.c_str());
             cJSON_AddNumberToObject(json, "timestamp_us", entry.timestamp_us);
             cJSON_AddNumberToObject(json, "type", static_cast<int>(entry.type));
 
-            char* json_string = cJSON_Print(json);
-            if (json_string) {
+            char *json_string = cJSON_Print(json);
+            if (json_string)
+            {
                 std::string data_str(json_string);
                 broadcastDataEntry(data_str);
                 free(json_string);
@@ -3225,6 +3303,75 @@ namespace wifi_monitor
         }
 
         return ESP_OK;
+    }
+
+    // System log capture methods
+    void WifiMonitor::addSystemLogEntry(const std::string &log_line)
+    {
+        if (system_log_mutex_ && xSemaphoreTake(system_log_mutex_, pdMS_TO_TICKS(10)) == pdTRUE)
+        {
+            system_log_buffer_.push_back(log_line);
+
+            // Limit buffer size to prevent memory overflow
+            if (system_log_buffer_.size() > MAX_SYSTEM_LOG_ENTRIES)
+            {
+                system_log_buffer_.erase(system_log_buffer_.begin());
+            }
+
+            xSemaphoreGive(system_log_mutex_);
+        }
+    }
+
+    std::vector<std::string> WifiMonitor::getRecentSystemLogs(size_t max_entries) const
+    {
+        std::vector<std::string> result;
+
+        if (system_log_mutex_ && xSemaphoreTake(system_log_mutex_, pdMS_TO_TICKS(10)) == pdTRUE)
+        {
+            size_t start_idx = 0;
+            if (system_log_buffer_.size() > max_entries)
+            {
+                start_idx = system_log_buffer_.size() - max_entries;
+            }
+
+            for (size_t i = start_idx; i < system_log_buffer_.size(); i++)
+            {
+                result.push_back(system_log_buffer_[i]);
+            }
+
+            xSemaphoreGive(system_log_mutex_);
+        }
+
+        return result;
+    }
+
+    // Static log hook for capturing all ESP-IDF logs
+    int WifiMonitor::logHook(const char *format, va_list args)
+    {
+        // Format the log message
+        char buffer[512];
+        int len = vsnprintf(buffer, sizeof(buffer) - 1, format, args);
+        buffer[sizeof(buffer) - 1] = '\0'; // Ensure null termination
+
+        // Add to system log buffer if instance exists
+        if (instance_ && len > 0)
+        {
+            // Remove trailing newline if present
+            std::string log_line(buffer);
+            if (!log_line.empty() && log_line.back() == '\n')
+            {
+                log_line.pop_back();
+            }
+
+            // Only capture non-empty, meaningful log lines
+            if (!log_line.empty() && log_line.find("I (") != std::string::npos)
+            {
+                instance_->addSystemLogEntry(log_line);
+            }
+        }
+
+        // Always call the original printf to maintain normal logging
+        return vprintf(format, args);
     }
 
 } // namespace wifi_monitor

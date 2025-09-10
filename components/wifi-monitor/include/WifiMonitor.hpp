@@ -187,6 +187,19 @@ namespace wifi_monitor
         std::string getDataLoggerCSV() const;
 
         /**
+         * @brief Add system log entry for console display
+         * @param log_line Complete formatted log line from ESP-IDF
+         */
+        void addSystemLogEntry(const std::string& log_line);
+
+        /**
+         * @brief Get recent system logs for console display
+         * @param max_entries Maximum number of recent entries to return
+         * @return Vector of recent log lines
+         */
+        std::vector<std::string> getRecentSystemLogs(size_t max_entries = 50) const;
+
+        /**
          * @brief Clear all logged diagnostic data
          */
         void clearDiagnosticData();
@@ -260,8 +273,16 @@ namespace wifi_monitor
         bool logging_active_ = false;
         static constexpr size_t MAX_LOG_ENTRIES = 1000; // Limit log size
 
+        // System log capture for console display
+        std::vector<std::string> system_log_buffer_;
+        SemaphoreHandle_t system_log_mutex_ = nullptr;
+        static constexpr size_t MAX_SYSTEM_LOG_ENTRIES = 100; // Recent system logs for console
+
         // Static instance for HTTP handlers
         static WifiMonitor *instance_;
+
+        // Log capture hook
+        static int logHook(const char* format, va_list args);
     };
 
 } // namespace wifi_monitor

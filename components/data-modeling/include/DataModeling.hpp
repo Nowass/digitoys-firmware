@@ -8,12 +8,14 @@
 #include <ComponentBase.hpp>
 
 // Forward declarations for hardware interfaces
-namespace lidar {
+namespace lidar
+{
     class LiDAR;
     struct ObstacleInfo;
 }
 
-namespace adas {
+namespace adas
+{
     class PwmDriver;
 }
 #include <esp_err.h>
@@ -22,12 +24,14 @@ namespace adas {
 #include "freertos/task.h"
 #include <vector>
 #include <functional>
+#include <array>
+#include "freertos/semphr.h"
 
 namespace digitoys::datamodeling
 {
     /**
      * @brief Main data modeling component coordinator
-     * 
+     *
      * Coordinates:
      * - Data collection from data-logger
      * - Physics analysis and enhancement
@@ -43,7 +47,7 @@ namespace digitoys::datamodeling
          * @param lidar_sensor LiDAR sensor for obstacle detection
          * @param pwm_driver PWM driver for RC input reading
          */
-        DataModeling(lidar::LiDAR* lidar_sensor = nullptr, adas::PwmDriver* pwm_driver = nullptr);
+        DataModeling(lidar::LiDAR *lidar_sensor = nullptr, adas::PwmDriver *pwm_driver = nullptr);
         virtual ~DataModeling();
 
         // IComponent interface implementation
@@ -57,7 +61,7 @@ namespace digitoys::datamodeling
          * @param raw_data Raw data entries from data-logger
          * @return Enhanced behavior data point
          */
-        BehaviorDataPoint processRawData(const std::vector<digitoys::datalogger::DataEntry>& raw_data);
+        BehaviorDataPoint processRawData(const std::vector<digitoys::datalogger::DataEntry> &raw_data);
 
         /**
          * @brief Collect and process real-time sensor data directly
@@ -77,7 +81,7 @@ namespace digitoys::datamodeling
          * @param description Session description
          * @return Session ID or 0 on error
          */
-        uint32_t startTestSession(const std::string& description = "");
+        uint32_t startTestSession(const std::string &description = "");
 
         /**
          * @brief Stop current test session
@@ -95,7 +99,7 @@ namespace digitoys::datamodeling
          * @brief Get current session information
          * @return Pointer to current session or nullptr
          */
-        const TestSessionData* getCurrentSession() const;
+        const TestSessionData *getCurrentSession() const;
 
         /**
          * @brief Get all behavior data for a session
@@ -109,14 +113,14 @@ namespace digitoys::datamodeling
          * @param config Export configuration
          * @return CSV string
          */
-        std::string exportToCSV(const ExportConfig& config) const;
+        std::string exportToCSV(const ExportConfig &config) const;
 
         /**
          * @brief Export session data to JSON format
-         * @param config Export configuration  
+         * @param config Export configuration
          * @return JSON string
          */
-        std::string exportToJSON(const ExportConfig& config) const;
+        std::string exportToJSON(const ExportConfig &config) const;
 
         /**
          * @brief Get modeling statistics
@@ -124,13 +128,13 @@ namespace digitoys::datamodeling
          * @param total_data_points Total behavior data points
          * @param physics_accuracy Average physics calculation accuracy
          */
-        void getStatistics(uint32_t& total_sessions, uint32_t& total_data_points, float& physics_accuracy) const;
+        void getStatistics(uint32_t &total_sessions, uint32_t &total_data_points, float &physics_accuracy) const;
 
         /**
          * @brief Set data collection callback for real-time processing
          * @param callback Function to call when new data is processed
          */
-        void setDataCallback(std::function<void(const BehaviorDataPoint&)> callback);
+        void setDataCallback(std::function<void(const BehaviorDataPoint &)> callback);
 
         /**
          * @brief Configure physics model parameters
@@ -151,12 +155,21 @@ namespace digitoys::datamodeling
          */
         void clearAllData();
 
+        /**
+         * @brief Copy out the latest N data points into the provided vector.
+         *        Safe to call from other tasks; performs a bounded-time copy.
+         * @param n Maximum number of newest points to copy
+         * @param out Destination vector (will be resized to the number of copied items)
+         * @return Number of points copied
+         */
+        size_t getLatestN(size_t n, std::vector<BehaviorDataPoint> &out) const;
+
     private:
-        static const char* TAG;
+        static const char *TAG;
 
         // Hardware interfaces (for direct sensor access)
-        lidar::LiDAR* lidar_sensor_;
-        adas::PwmDriver* pwm_driver_;
+        lidar::LiDAR *lidar_sensor_;
+        adas::PwmDriver *pwm_driver_;
 
         // Real-time collection task
         TaskHandle_t collection_task_handle_ = nullptr;
@@ -167,12 +180,16 @@ namespace digitoys::datamodeling
         std::unique_ptr<TestSessionManager> session_manager_;
         std::unique_ptr<PhysicsAnalyzer> physics_analyzer_;
 
-        // Data storage
-        std::vector<BehaviorDataPoint> behavior_data_;
-        uint32_t sample_rate_ms_ = 200; // Default sampling rate
+        // Data storage: fixed-size ring buffer to avoid dynamic allocations on the hot path
+        static constexpr size_t kBufferCapacity = 256;
+        std::array<BehaviorDataPoint, kBufferCapacity> buffer_{};
+        size_t head_ = 0;                                  // points to next write position
+        size_t size_ = 0;                                  // number of valid items in buffer
+        mutable SemaphoreHandle_t buffer_mutex_ = nullptr; // guards head_/size_/buffer_ snapshots
+        uint32_t sample_rate_ms_ = 200;                    // Default sampling rate
 
         // Callback for real-time data
-        std::function<void(const BehaviorDataPoint&)> data_callback_;
+        std::function<void(const BehaviorDataPoint &)> data_callback_;
 
         // Statistics
         uint32_t total_data_points_ = 0;
@@ -182,14 +199,14 @@ namespace digitoys::datamodeling
          * @param raw_data Raw data from data-logger
          * @return Basic behavior data point (before physics analysis)
          */
-        BehaviorDataPoint convertRawData(const std::vector<digitoys::datalogger::DataEntry>& raw_data);
+        BehaviorDataPoint convertRawData(const std::vector<digitoys::datalogger::DataEntry> &raw_data);
 
         /**
          * @brief Generate CSV header for export
          * @param config Export configuration
          * @return CSV header string
          */
-        std::string generateCSVHeader(const ExportConfig& config) const;
+        std::string generateCSVHeader(const ExportConfig &config) const;
 
         /**
          * @brief Convert behavior data point to CSV row
@@ -197,7 +214,7 @@ namespace digitoys::datamodeling
          * @param config Export configuration
          * @return CSV row string
          */
-        std::string behaviorDataToCSV(const BehaviorDataPoint& data_point, const ExportConfig& config) const;
+        std::string behaviorDataToCSV(const BehaviorDataPoint &data_point, const ExportConfig &config) const;
 
         /**
          * @brief Generate session info header for export
@@ -216,6 +233,25 @@ namespace digitoys::datamodeling
          * @return Raw sensor data as BehaviorDataPoint
          */
         BehaviorDataPoint readSensorData();
+
+        // Internal: push a new data point into the ring buffer (no heap on hot path)
+        inline void pushDataPoint(const BehaviorDataPoint &dp)
+        {
+            // Single producer assumed; protect only head_/size_ update to be safe
+            if (buffer_mutex_)
+                xSemaphoreTake(buffer_mutex_, portMAX_DELAY);
+            buffer_[head_] = dp;
+            head_ = (head_ + 1) % kBufferCapacity;
+            if (size_ < kBufferCapacity)
+            {
+                size_++;
+            }
+            if (buffer_mutex_)
+                xSemaphoreGive(buffer_mutex_);
+        }
+
+        // Internal: snapshot buffer into a linear vector in chronological order (oldest->newest)
+        void snapshotBuffer(std::vector<BehaviorDataPoint> &out) const;
     };
 
 } // namespace digitoys::datamodeling

@@ -9,8 +9,9 @@
 #include "WifiMonitor.hpp" // Add our new component
 #include "SystemMonitor.hpp"
 #include "ControlTask.hpp"
-#include "DataLoggerService.hpp" // Add DataLogger integration
-#include "DataModeling.hpp" // Add DataModeling component
+#include "DataLoggerService.hpp"  // Add DataLogger integration
+#include "DataModeling.hpp"       // Add DataModeling component
+#include "ModelingDataSource.hpp" // IDataSource adapter for real sensor streaming
 
 static const char *TAG = "APP_MAIN";
 using namespace lidar;
@@ -59,30 +60,38 @@ extern "C" void app_main()
     ESP_LOGI(TAG, "DataModeling service initialized and started");
 
     // Enable real-time sensor data collection (100ms intervals)
-    ESP_ERROR_CHECK(data_modeling.setRealTimeCollection(true, 100));
+    // Note: Temporarily disabled to prevent memory overflow during testing
+    // ESP_ERROR_CHECK(data_modeling.setRealTimeCollection(true, 100));
 
-    // --- Connect DataLogger to DataModeling Pipeline ---
-    // Enable streaming mode for real-time data processing
-    data_logger.getDataLogger()->setStreamingMode(true);
-    
-    // Set up data stream callback to feed DataModeling
-    data_logger.getDataLogger()->setStreamingCallback([&data_modeling](const digitoys::datalogger::DataEntry& entry, const std::string& source_name) {
-        // Collect recent data entries for processing
-        static std::vector<digitoys::datalogger::DataEntry> batch_buffer;
-        batch_buffer.push_back(entry);
-        
-        // Process in batches every 10 entries for efficiency
-        if (batch_buffer.size() >= 10) {
-            auto behavior_point = data_modeling.processRawData(batch_buffer);
-            batch_buffer.clear();
-            
-            // Optional: Log processing stats
-            ESP_LOGD(TAG, "Processed batch: Session=%lu, Speed=%.2f", 
-                    behavior_point.session_data.session_id, 
-                    behavior_point.physics_data.calculated_speed);
+    // (Streaming of modeling data is currently disabled during investigation.)
+
+    // --- Optional: Register ModelingDataSource for real sensor streaming (conservative rate)
+    // Keep ControlTask untouched. This source reads LiDAR/PWM directly in parallel.
+    {
+        static constexpr bool kEnableModelingSource = true; // Flip to false to disable quickly
+        static constexpr uint32_t kModelingSampleMs = 500;  // Match ControlTaskDataSource to avoid timer downshift
+        if (kEnableModelingSource)
+        {
+            auto *logger = data_logger.getDataLogger();
+            if (logger)
+            {
+                auto modeling_source = std::make_shared<digitoys::datamodeling::ModelingDataSource>(&data_modeling, kModelingSampleMs, true);
+                esp_err_t reg_ret = logger->registerDataSource(modeling_source);
+                if (reg_ret == ESP_OK)
+                {
+                    ESP_LOGI(TAG, "ModelingDataSource registered at %ums", kModelingSampleMs);
+                }
+                else
+                {
+                    ESP_LOGW(TAG, "Failed to register ModelingDataSource: %s", esp_err_to_name(reg_ret));
+                }
+            }
+            else
+            {
+                ESP_LOGW(TAG, "DataLogger not available for ModelingDataSource registration");
+            }
         }
-    });
-    ESP_LOGI(TAG, "DataLogger pipeline connected to DataModeling");
+    }
 
     // --- Connect DataLogger to WiFi Monitor for button control ---
     wifi_mon.setDataLoggerService(&data_logger);

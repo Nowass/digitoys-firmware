@@ -531,7 +531,7 @@ namespace digitoys::datalogger
 
     size_t DataLogger::calculateEntrySize(const DataEntry &entry) const
     {
-        return sizeof(DataEntry) + entry.key.size() + entry.value.size();
+        return sizeof(DataEntry) + entry.source.size() + entry.key.size() + entry.value.size();
     }
 
     esp_err_t DataLogger::setMonitoringMode(bool enable)
@@ -574,7 +574,9 @@ namespace digitoys::datalogger
         for (const DataEntry &entry : entries)
         {
             // Add the new entry to monitoring buffer
-            monitoring_data_.push_back(entry);
+            DataEntry e = entry;
+            e.source = source_name;
+            monitoring_data_.push_back(e);
 
             // If we exceed the monitoring buffer size, remove the oldest entry
             if (monitoring_data_.size() > max_buffer_size)
@@ -603,7 +605,9 @@ namespace digitoys::datalogger
                 break;
             }
 
-            logged_data_.push_back(entry);
+            DataEntry e = entry;
+            e.source = source_name;
+            logged_data_.push_back(e);
         }
     }
 
@@ -655,7 +659,9 @@ namespace digitoys::datalogger
         for (const DataEntry &entry : entries)
         {
             // Add to circular buffer for display
-            streaming_data_.push_back(entry);
+            DataEntry e = entry;
+            e.source = source_name;
+            streaming_data_.push_back(e);
             
             // Maintain circular buffer size
             if (streaming_data_.size() > config_.streaming_buffer_size)
@@ -666,7 +672,7 @@ namespace digitoys::datalogger
             // Call streaming callback if set
             if (streaming_callback_)
             {
-                streaming_callback_(entry, source_name);
+                streaming_callback_(e, source_name);
             }
         }
         

@@ -197,6 +197,13 @@ namespace wifi_monitor
          */
         std::string getDataLoggerCSV() const;
 
+    /**
+     * @brief Get aggregated physics data as a wide CSV at a fixed rate
+     * @param rate_hz Sampling rate in Hz (default 5)
+     * @return CSV string with wide rows and normalized units
+     */
+    std::string getDataLoggerWideCSV(uint32_t rate_hz = 5) const;
+
         /**
          * @brief Add system log entry for console display
          * @param log_line Complete formatted log line from ESP-IDF

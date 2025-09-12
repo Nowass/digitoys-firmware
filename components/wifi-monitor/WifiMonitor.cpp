@@ -1248,17 +1248,20 @@ namespace wifi_monitor
         let consoleLines = [];
         const MAX_CONSOLE_LINES = 100;
 
-        // File streaming variables
+    // File streaming variables
         let dataStreamWs = null;
         let currentLogFile = null;
         let logFileWriter = null;
         let logFileName = '';
         let streamingActive = false;
         
-        // Data aggregation for CSV formatting
-        let pendingDataRows = new Map(); // timestamp -> {data entries}
-        let flushTimeout = null;
-        const FLUSH_TIMEOUT_MS = 100; // Flush incomplete rows after 100ms
+        // Wide CSV (5 Hz) streaming aggregator (client-side, no device storage)
+        const WIDE_RATE_HZ = 5;                 // default target
+        const WIDE_PERIOD_MS = 1000 / WIDE_RATE_HZ; // 200 ms
+        let wideState = null;      // populated from incoming entries
+        let wideTimerId = null;    // setInterval id
+        let wallStartMs = null;    // fallback base time when ESP timestamps absent
+        let lastEventTsUs = null;  // last ESP timestamp observed
         
         // Streaming statistics tracking
         let streamingStartTime = null;
@@ -1602,40 +1605,74 @@ namespace wifi_monitor
             };
             
             dataStreamWs.onmessage = function(event) {
-                if (streamingActive && logFileWriter) {
-                    // Aggregate incoming data entries by timestamp
-                    try {
-                        const data = JSON.parse(event.data);
-                        console.log('Received data entry:', data);  // Debug log
-                        
-                        // Update streaming statistics
-                        streamingEntryCount++;
-                        if (!streamingStartTime) {
-                            streamingStartTime = Date.now();
-                        }
-                        
-                        const timestamp = Math.floor(data.timestamp_us / 1000); // Convert to ms for grouping
-                        
-                        // Initialize row if not exists
-                        if (!pendingDataRows.has(timestamp)) {
-                            pendingDataRows.set(timestamp, {
-                                timestamp_us: data.timestamp_us,
-                                source: data.source,
-                                entries: {}
-                            });
-                        }
-                        
-                        // Add this entry to the row
-                        pendingDataRows.get(timestamp).entries[data.key] = data.value;
-                        console.log('Pending data rows:', pendingDataRows.size);  // Debug log
-                        
-                        // Reset flush timeout
-                        if (flushTimeout) clearTimeout(flushTimeout);
-                        flushTimeout = setTimeout(flushPendingRows, FLUSH_TIMEOUT_MS);
-                        
-                    } catch (error) {
-                        console.error('Error processing data:', error);
+                if (!(streamingActive && logFileWriter)) return;
+                try {
+                    const e = JSON.parse(event.data);
+                    streamingEntryCount++;
+                    if (!streamingStartTime) streamingStartTime = Date.now();
+
+                    if (!wideState) {
+                        wideState = {
+                            base_ts_us: e.timestamp_us || 0,
+                            rc_input_pct: null,
+                            dist_m: null,
+                            speed_kmh: null,
+                            brake_m: null,
+                            safety_m: null,
+                            obstacle: 0,
+                            warning: 0,
+                            driving_fwd: 0,
+                            wants_rev: 0,
+                            throttle: 0,
+                            tti_s: null,
+                            decel_mps2: null,
+                            brake_events: 0,
+                            warning_events: 0,
+                            source: ''
+                        };
+                        wallStartMs = Date.now();
+                        if (!wideTimerId) wideTimerId = setInterval(writeWideRow, WIDE_PERIOD_MS);
                     }
+
+                    lastEventTsUs = e.timestamp_us || lastEventTsUs;
+                    if (e.source) wideState.source = e.source;
+
+                    const key = e.key;
+                    const valStr = (e.value ?? '').toString();
+                    const toF = (s) => { const v = parseFloat(s); return Number.isFinite(v) ? v : null; };
+                    const isTrue = (s) => s === '1' || s === 'true' || s === 1 || s === true;
+
+                    if (key === 'rc_input') {
+                        const v = toF(valStr); if (v !== null) wideState.rc_input_pct = v * 100.0;
+                    } else if (key === 'obstacle_distance') {
+                        const v = toF(valStr); if (v !== null) wideState.dist_m = (v > 10.0 ? v/100.0 : v);
+                    } else if (key === 'calculated_speed' || key === 'speed_estimate') {
+                        const v = toF(valStr); if (v !== null) wideState.speed_kmh = v * 3.6;
+                    } else if (key === 'brake_distance') {
+                        const v = toF(valStr); if (v !== null) wideState.brake_m = (v > 10.0 ? v/100.0 : v);
+                    } else if (key === 'safety_margin') {
+                        const v = toF(valStr); if (v !== null) wideState.safety_m = (v > 10.0 ? v/100.0 : v);
+                    } else if (key === 'is_obstacle_state' || key === 'obstacle_detected') {
+                        wideState.obstacle = isTrue(valStr) ? 1 : 0;
+                    } else if (key === 'is_warning_state' || key === 'warning_active') {
+                        wideState.warning = isTrue(valStr) ? 1 : 0;
+                    } else if (key === 'driving_forward') {
+                        wideState.driving_fwd = isTrue(valStr) ? 1 : 0;
+                    } else if (key === 'wants_reverse') {
+                        wideState.wants_rev = isTrue(valStr) ? 1 : 0;
+                    } else if (key === 'throttle_pressed') {
+                        wideState.throttle = isTrue(valStr) ? 1 : 0;
+                    } else if (key === 'time_to_impact') {
+                        const v = toF(valStr); if (v !== null) wideState.tti_s = v;
+                    } else if (key === 'deceleration') {
+                        const v = toF(valStr); if (v !== null) wideState.decel_mps2 = v;
+                    } else if (key === 'brake_events') {
+                        const v = parseInt(valStr, 10); if (!Number.isNaN(v)) wideState.brake_events = v;
+                    } else if (key === 'warning_events') {
+                        const v = parseInt(valStr, 10); if (!Number.isNaN(v)) wideState.warning_events = v;
+                    }
+                } catch (error) {
+                    console.error('Error processing data:', error);
                 }
             };
             
@@ -1667,7 +1704,7 @@ namespace wifi_monitor
             }
         }
         
-        async function createFileWithPicker() {
+    async function createFileWithPicker() {
             try {
                 const fileHandle = await window.showSaveFilePicker({
                     suggestedName: logFileName,
@@ -1680,15 +1717,15 @@ namespace wifi_monitor
                 const writable = await fileHandle.createWritable();
                 logFileWriter = writable;
                 
-                // Write CSV header with proper column structure
-                const header = 'timestamp_us,rc_input,distance,speed,safety_margin,obstacle_detected,warning_active\n';
+                // Write wide CSV header (client-side streaming)
+                const header = 'timestamp_us,rc_input_pct,obstacle_distance_m,speed_est_kmh,brake_distance_m,safety_margin_m,is_obstacle,is_warning,driving_forward,driving_backward,wants_reverse,throttle_pressed,time_to_impact_s,deceleration_mps2,brake_events,warning_events,source\n';
                 await logFileWriter.write(header);
                 
                 // Reset streaming statistics
                 streamingStartTime = null;
                 streamingEntryCount = 0;
                 streamingRowCount = 0;
-                pendingDataRows.clear();
+                // no pending row buffer in wide mode
                 
                 streamingActive = true;
                 connectDataStream();
@@ -1700,7 +1737,7 @@ namespace wifi_monitor
             }
         }
         
-        function createFileWithFallback() {
+    function createFileWithFallback() {
             // Fallback: accumulate data in memory
             currentLogFile = [];
             
@@ -1708,7 +1745,7 @@ namespace wifi_monitor
             streamingStartTime = null;
             streamingEntryCount = 0;
             streamingRowCount = 0;
-            pendingDataRows.clear();
+            // no pending row buffer in wide mode
             
             streamingActive = true;
             connectDataStream();
@@ -1724,8 +1761,8 @@ namespace wifi_monitor
                 }
             };
             
-            // Write CSV header
-            const header = 'source,key,value,timestamp_us,type\\n';
+            // Write wide CSV header (client-side streaming)
+            const header = 'timestamp_us,rc_input_pct,obstacle_distance_m,speed_est_kmh,brake_distance_m,safety_margin_m,is_obstacle,is_warning,driving_forward,driving_backward,wants_reverse,throttle_pressed,time_to_impact_s,deceleration_mps2,brake_events,warning_events,source\n';
             logFileWriter.write(header);
         }
         
@@ -1734,14 +1771,14 @@ namespace wifi_monitor
             
             streamingActive = false;
             
-            // Flush any pending rows
-            if (flushTimeout) {
-                clearTimeout(flushTimeout);
-                flushTimeout = null;
+            // No aggregation used; nothing to flush
+            if (wideTimerId) {
+                clearInterval(wideTimerId);
+                wideTimerId = null;
             }
-            if (pendingDataRows.size > 0) {
-                flushPendingRows();
-            }
+            wideState = null;
+            wallStartMs = null;
+            lastEventTsUs = null;
             
             // Close WebSocket connection
             if (dataStreamWs) {
@@ -1783,29 +1820,21 @@ namespace wifi_monitor
         
         function convertToCSV(data) {
             // Convert JSON data to CSV format for generic DataEntry
-            const source = data.source || '';
-            const key = data.key || '';
-            const value = data.value || '';
+            const source = (data.source || '').toString();
+            const key = (data.key || '').toString();
+            const value = (data.value !== undefined && data.value !== null) ? data.value.toString() : '';
             const timestamp_us = data.timestamp_us || 0;
             const type = data.type || 0;
             
-            // Escape any commas in the values
-            const escapedSource = source.replace(/,/g, ';');
-            const escapedKey = key.replace(/,/g, ';');
-            const escapedValue = value.replace(/,/g, ';');
+            // Escape commas and quotes in values and wrap fields that may contain separators
+            const esc = (s) => s.replace(/"/g, '""');
+            const wrap = (s) => (s.includes(',') || s.includes('"') || s.includes('\n')) ? `"${esc(s)}"` : s;
             
-            return `${escapedSource},${escapedKey},${escapedValue},${timestamp_us},${type}`;
+            return `${timestamp_us},${wrap(source)},${wrap(key)},${wrap(value)},${type}`;
         }
         
-        function flushPendingRows() {
-            for (const [timestamp, rowData] of pendingDataRows) {
-                const csvLine = convertAggregatedToCSV(rowData) + '\n';
-                console.log('Writing CSV line:', csvLine);  // Debug log
-                logFileWriter.write(csvLine);
-                streamingRowCount++; // Increment completed dataset counter
-            }
-            pendingDataRows.clear();
-        }
+        // Aggregation no longer used
+        function flushPendingRows() { /* no-op */ }
         
         function convertAggregatedToCSV(rowData) {
             // Convert aggregated data to CSV format matching new header structure
@@ -1821,6 +1850,38 @@ namespace wifi_monitor
                                   rowData.entries.warning_active === '1') ? 1 : 0;
             
             return `${timestamp},${rcInput},${distance},${speed},${safetyMargin},${obstacleDetected},${warningActive}`;
+        }
+
+        // Periodic writer for wide CSV rows at fixed rate (client-side streaming)
+        function writeWideRow() {
+            if (!(streamingActive && logFileWriter && wideState)) return;
+
+            const nowMs = Date.now();
+            const relUs = wallStartMs ? Math.max(0, Math.floor((nowMs - wallStartMs) * 1000))
+                                      : (lastEventTsUs && wideState.base_ts_us ? Math.max(0, lastEventTsUs - wideState.base_ts_us) : 0);
+
+            const driving_bwd = (wideState.wants_rev && !wideState.driving_fwd) ? 1 : 0;
+
+            const num = (v) => (v === null || v === undefined || Number.isNaN(v)) ? '' : String(v);
+            const intn = (v) => (v === null || v === undefined || Number.isNaN(v)) ? '0' : String(v|0);
+            const esc = (s) => String(s).replace(/"/g, '""');
+            const wrap = (s) => {
+                const str = (s === null || s === undefined) ? '' : String(s);
+                return (str.includes(',') || str.includes('"') || str.includes('\n')) ? `"${esc(str)}"` : str;
+            };
+
+            const line = `${relUs},${num(wideState.rc_input_pct)},${num(wideState.dist_m)},${num(wideState.speed_kmh)},`+
+                         `${num(wideState.brake_m)},${num(wideState.safety_m)},${intn(wideState.obstacle)},${intn(wideState.warning)},`+
+                         `${intn(wideState.driving_fwd)},${intn(driving_bwd)},${intn(wideState.wants_rev)},${intn(wideState.throttle)},`+
+                         `${num(wideState.tti_s)},${num(wideState.decel_mps2)},${intn(wideState.brake_events)},${intn(wideState.warning_events)},`+
+                         `${wrap(wideState.source)}\n`;
+
+            try {
+                logFileWriter.write(line);
+                streamingRowCount++;
+            } catch (err) {
+                console.error('Failed writing wide CSV row:', err);
+            }
         }
         
         // Logging functionality - Phase 2
@@ -2049,10 +2110,9 @@ namespace wifi_monitor
             if (streamingActive && streamingStartTime) {
                 const now = Date.now();
                 const elapsedSeconds = (now - streamingStartTime) / 1000;
-                const estimatedRowsFromPending = Math.floor(streamingEntryCount / 5); // Rough estimate of pending rows
-                const totalRows = streamingRowCount + estimatedRowsFromPending;
+                const totalRows = streamingRowCount; // 1 row per entry
                 
-                updateLogEntries(totalRows); // Show completed datasets (CSV rows)
+                updateLogEntries(totalRows);
                 updateLogSize(Math.floor(totalRows * 0.05)); // Estimate size in KB based on rows
                 updateLastEntry();
                 // Remove data rate display - not meaningful for users
@@ -3110,16 +3170,18 @@ namespace wifi_monitor
             return "error\nNo logged data available. Start a logging session first.\n";
         }
 
-        // CSV header
-        std::string csv = "timestamp_us,key,value\n";
+    // CSV header: timestamp first, then source, key, value, and numeric type
+    std::string csv = "timestamp_us,source,key,value,type\n";
 
         for (size_t i = 0; i < collected_data.size(); ++i)
         {
             const auto &entry = collected_data[i];
 
             csv += std::to_string(entry.timestamp_us) + ",";
+            csv += (entry.source.empty() ? std::string("unknown") : entry.source) + ",";
             csv += entry.key + ",";
-            csv += entry.value + "\n";
+            csv += entry.value + ",";
+            csv += std::to_string(static_cast<int>(entry.type)) + "\n";
 
             // Yield periodically for large datasets
             if (i % 100 == 0)
@@ -3130,6 +3192,136 @@ namespace wifi_monitor
 
         DIGITOYS_LOGI("WifiMonitor", "getDataLoggerCSV completed, final size: %d bytes, entries: %zu",
                       csv.length(), collected_data.size());
+        return csv;
+    }
+
+    // Build a wide CSV sampled at a fixed rate with normalized units
+    std::string WifiMonitor::getDataLoggerWideCSV(uint32_t rate_hz) const
+    {
+        if (!data_logger_service_)
+        {
+            return "error\nDataLogger service not available\n";
+        }
+
+        if (rate_hz == 0) rate_hz = 5;
+        if (rate_hz > 50) rate_hz = 50; // sanity cap
+        const uint32_t period_ms = 1000 / rate_hz;
+
+        auto *data_logger = data_logger_service_->getDataLogger();
+        auto entries = data_logger->getLoggedData(); // event-style entries across sources
+        if (entries.empty())
+        {
+            return "error\nNo logged data available. Start a logging session first.\n";
+        }
+
+        // Determine start timestamp for relative time
+        uint64_t start_ts = entries.front().timestamp_us;
+        for (const auto &e : entries) if (e.timestamp_us < start_ts) start_ts = e.timestamp_us;
+
+        // Header
+        std::string csv =
+            "timestamp_us,rc_input_pct,obstacle_distance_m,speed_est_kmh,brake_distance_m,safety_margin_m," \
+            "is_obstacle,is_warning,driving_forward,driving_backward,wants_reverse,throttle_pressed," \
+            "time_to_impact_s,deceleration_mps2,brake_events,warning_events,source\n";
+
+        // State to carry forward values between samples
+        struct RowState {
+            float rc_input_pct = NAN;
+            float dist_m = NAN;
+            float speed_kmh = NAN;
+            float brake_m = NAN;
+            float safety_m = NAN;
+            int obstacle = 0;
+            int warning = 0;
+            int driving_fwd = 0;
+            int driving_bwd = 0;
+            int wants_rev = 0;
+            int throttle = 0;
+            float tti_s = NAN;
+            float decel_mps2 = NAN;
+            uint32_t brake_events = 0;
+            uint32_t warning_events = 0;
+            std::string source;
+        } state;
+
+        // Helper to parse numeric safely
+        auto parseF = [](const std::string &s, float &out){
+            char *end=nullptr; out = strtof(s.c_str(), &end); return end && *end=='\0'; };
+        auto parseU = [](const std::string &s, uint32_t &out){
+            char *end=nullptr; unsigned long v=strtoul(s.c_str(), &end, 10); if(end&&*end=='\0'){out=(uint32_t)v; return true;} return false; };
+
+        // Walk time in fixed steps, and for each bucket, fold all entries within [t, t+period)
+        uint64_t end_ts = entries.back().timestamp_us;
+        for (uint64_t t = start_ts; t <= end_ts; t += (uint64_t)period_ms * 1000ULL)
+        {
+            // Apply entries that fall into this bucket
+            for (const auto &e : entries)
+            {
+                if (e.timestamp_us < t || e.timestamp_us >= t + (uint64_t)period_ms * 1000ULL) continue;
+
+                // Update source (last writer wins)
+                if (!e.source.empty()) state.source = e.source;
+
+                // Normalize by key
+                if (e.key == "rc_input") {
+                    float v; if (parseF(e.value, v)) state.rc_input_pct = v * 100.0f;
+                } else if (e.key == "obstacle_distance") {
+                    float v; if (parseF(e.value, v)) {
+                        // Assume ControlTask may be cm; if clearly >10, convert cm->m; otherwise keep
+                        state.dist_m = (v > 10.0f ? v / 100.0f : v);
+                    }
+                } else if (e.key == "calculated_speed" || e.key == "speed_estimate") {
+                    float v; if (parseF(e.value, v)) state.speed_kmh = v * 3.6f; // m/s -> km/h
+                } else if (e.key == "brake_distance") {
+                    float v; if (parseF(e.value, v)) state.brake_m = (v > 10.0f ? v / 100.0f : v);
+                } else if (e.key == "safety_margin") {
+                    float v; if (parseF(e.value, v)) state.safety_m = (v > 10.0f ? v / 100.0f : v);
+                } else if (e.key == "is_obstacle_state" || e.key == "obstacle_detected") {
+                    state.obstacle = (e.value == "1" || e.value == "true");
+                } else if (e.key == "is_warning_state" || e.key == "warning_active") {
+                    state.warning = (e.value == "1" || e.value == "true");
+                } else if (e.key == "driving_forward") {
+                    state.driving_fwd = (e.value == "1" || e.value == "true");
+                } else if (e.key == "wants_reverse") {
+                    state.wants_rev = (e.value == "1" || e.value == "true");
+                } else if (e.key == "throttle_pressed") {
+                    state.throttle = (e.value == "1" || e.value == "true");
+                } else if (e.key == "time_to_impact") {
+                    float v; if (parseF(e.value, v)) state.tti_s = v;
+                } else if (e.key == "deceleration") {
+                    float v; if (parseF(e.value, v)) state.decel_mps2 = v;
+                } else if (e.key == "brake_events") {
+                    uint32_t v; if (parseU(e.value, v)) state.brake_events = v;
+                } else if (e.key == "warning_events") {
+                    uint32_t v; if (parseU(e.value, v)) state.warning_events = v;
+                }
+            }
+
+            // Derive driving_backward if possible: wants_reverse and not forward
+            state.driving_bwd = (state.wants_rev && !state.driving_fwd) ? 1 : 0;
+
+            // Write row using relative timestamp
+            uint64_t rel_us = (t - start_ts);
+            auto fmtOpt = [](float v){ return std::isnan(v) ? std::string("") : std::to_string(v); };
+            csv += std::to_string(rel_us) + ",";
+            csv += fmtOpt(state.rc_input_pct) + ",";
+            csv += fmtOpt(state.dist_m) + ",";
+            csv += fmtOpt(state.speed_kmh) + ",";
+            csv += fmtOpt(state.brake_m) + ",";
+            csv += fmtOpt(state.safety_m) + ",";
+            csv += std::to_string(state.obstacle) + ",";
+            csv += std::to_string(state.warning) + ",";
+            csv += std::to_string(state.driving_fwd) + ",";
+            csv += std::to_string(state.driving_bwd) + ",";
+            csv += std::to_string(state.wants_rev) + ",";
+            csv += std::to_string(state.throttle) + ",";
+            csv += fmtOpt(state.tti_s) + ",";
+            csv += fmtOpt(state.decel_mps2) + ",";
+            csv += std::to_string(state.brake_events) + ",";
+            csv += std::to_string(state.warning_events) + ",";
+            csv += (state.source.empty() ? std::string("") : state.source) + "\n";
+        }
+
         return csv;
     }
 
@@ -3258,6 +3450,8 @@ namespace wifi_monitor
         // Check query parameter for format (default to csv for efficiency)
         char query[100];
         bool use_json = false;
+        bool use_wide = false;
+        uint32_t rate_hz = 5;
         if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK)
         {
             char format[10];
@@ -3267,6 +3461,16 @@ namespace wifi_monitor
                 {
                     use_json = true;
                 }
+                else if (strcmp(format, "wide") == 0)
+                {
+                    use_wide = true;
+                }
+            }
+            char rate_buf[10];
+            if (httpd_query_key_value(query, "rate_hz", rate_buf, sizeof(rate_buf)) == ESP_OK)
+            {
+                int r = atoi(rate_buf);
+                if (r > 0) rate_hz = (uint32_t)r;
             }
         }
 
@@ -3288,6 +3492,14 @@ namespace wifi_monitor
                 httpd_resp_send(req, json_data.c_str(), json_data.length());
                 DIGITOYS_LOGI("WifiMonitor", "JSON response sent successfully");
             }
+        }
+        else if (use_wide)
+        {
+            httpd_resp_set_type(req, "text/csv");
+            httpd_resp_set_hdr(req, "Content-Disposition", "attachment; filename=\"physics_wide.csv\"");
+
+            std::string csv_data = instance_->getDataLoggerWideCSV(rate_hz);
+            httpd_resp_send(req, csv_data.c_str(), csv_data.length());
         }
         else
         {

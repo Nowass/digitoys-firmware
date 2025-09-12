@@ -26,6 +26,7 @@ namespace digitoys::datalogger
      */
     struct DataEntry
     {
+        std::string source;    ///< Name of the data source (set by DataLogger on ingestion)
         std::string key;       ///< Data field name/identifier
         DataType type;         ///< Type of the data
         std::string value;     ///< String representation of the value

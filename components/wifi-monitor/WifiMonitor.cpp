@@ -261,6 +261,118 @@ namespace wifi_monitor
         }
     }
 
+    void WifiMonitor::submitTelemetryFrame(const TelemetryFrame &frame)
+    {
+        uint64_t now_us = frame.ts_us ? frame.ts_us : esp_timer_get_time();
+        if (!telemetry_mutex_)
+            return;
+        if (xSemaphoreTake(telemetry_mutex_, pdMS_TO_TICKS(5)))
+        {
+            // Move current last to prev
+            if (last_frame_valid_)
+            {
+                prev_frame_ = last_frame_;
+                prev_frame_valid_ = true;
+            }
+
+            last_frame_ = frame; // copy provided fields
+            last_frame_.ts_us = now_us;
+            last_frame_.seq = frame_seq_++;
+
+            // Derive speed if we have previous frame and time advanced
+            if (prev_frame_valid_)
+            {
+                int64_t dt_us = (int64_t)last_frame_.ts_us - (int64_t)prev_frame_.ts_us;
+                float dd = prev_frame_.lidar_distance_m - last_frame_.lidar_distance_m; // positive if moving forward toward obstacle
+                if (dt_us > 0 && dd > 0.0f)
+                {
+                    last_frame_.speed_approx_mps = dd / (dt_us / 1e6f);
+                }
+                else
+                {
+                    last_frame_.speed_approx_mps = 0.0f;
+                }
+            }
+            else
+            {
+                last_frame_.speed_approx_mps = 0.0f;
+            }
+
+            // Safety margin (distance - brake_distance)
+            last_frame_.safety_margin_m = last_frame_.lidar_distance_m - last_frame_.brake_distance_m;
+
+            last_frame_valid_ = true;
+
+            // Prepare JSON for WebSocket clients (data channel)
+            if (!websocket_data_clients_.empty())
+            {
+                cJSON *root = cJSON_CreateObject();
+                cJSON_AddNumberToObject(root, "ts_us", (double)last_frame_.ts_us);
+                cJSON_AddNumberToObject(root, "seq", (double)last_frame_.seq);
+                cJSON_AddNumberToObject(root, "rc_duty_raw", last_frame_.rc_duty_raw);
+                cJSON_AddBoolToObject(root, "rc_throttle_pressed", last_frame_.rc_throttle_pressed);
+                cJSON_AddBoolToObject(root, "rc_forward", last_frame_.rc_forward);
+                cJSON_AddBoolToObject(root, "rc_reverse", last_frame_.rc_reverse);
+                cJSON_AddNumberToObject(root, "lidar_distance_m", last_frame_.lidar_distance_m);
+                cJSON_AddBoolToObject(root, "obstacle_detected", last_frame_.obstacle_detected);
+                cJSON_AddBoolToObject(root, "warning_active", last_frame_.warning_active);
+                cJSON_AddNumberToObject(root, "brake_distance_m", last_frame_.brake_distance_m);
+                cJSON_AddNumberToObject(root, "warning_distance_m", last_frame_.warning_distance_m);
+                cJSON_AddNumberToObject(root, "safety_margin_m", last_frame_.safety_margin_m);
+                cJSON_AddNumberToObject(root, "speed_approx_mps", last_frame_.speed_approx_mps);
+
+                char *json_str = cJSON_PrintUnformatted(root);
+                if (json_str)
+                {
+                    std::string payload(json_str);
+                    cJSON_free(json_str);
+
+                    if (xSemaphoreTake(ws_clients_mutex_, pdMS_TO_TICKS(5)) == pdTRUE)
+                    {
+                        for (auto it = websocket_data_clients_.begin(); it != websocket_data_clients_.end();)
+                        {
+                            httpd_ws_frame_t ws_pkt = {};
+                            ws_pkt.payload = (uint8_t *)payload.c_str();
+                            ws_pkt.len = payload.size();
+                            ws_pkt.type = HTTPD_WS_TYPE_TEXT;
+                            int sockfd = *it;
+                            if (httpd_ws_send_frame_async(server_, sockfd, &ws_pkt) != ESP_OK)
+                            {
+                                DIGITOYS_LOGW("WifiMonitor", "Removing disconnected data client %d", sockfd);
+                                it = websocket_data_clients_.erase(it);
+                            }
+                            else
+                            {
+                                ++it;
+                            }
+                        }
+                        xSemaphoreGive(ws_clients_mutex_);
+                    }
+                }
+                cJSON_Delete(root);
+            }
+
+            xSemaphoreGive(telemetry_mutex_);
+        }
+    }
+
+    bool WifiMonitor::getLastTelemetryFrame(TelemetryFrame &out) const
+    {
+        if (!telemetry_mutex_)
+            return false;
+        if (xSemaphoreTake(telemetry_mutex_, pdMS_TO_TICKS(5)))
+        {
+            if (last_frame_valid_)
+            {
+                out = last_frame_;
+                xSemaphoreGive(telemetry_mutex_);
+                return true;
+            }
+            xSemaphoreGive(telemetry_mutex_);
+        }
+        return false;
+    }
+
     esp_err_t WifiMonitor::getTelemetry(Telemetry &data) const
     {
         if (telemetry_mutex_ && xSemaphoreTake(telemetry_mutex_,
@@ -3170,8 +3282,8 @@ namespace wifi_monitor
             return "error\nNo logged data available. Start a logging session first.\n";
         }
 
-    // CSV header: timestamp first, then source, key, value, and numeric type
-    std::string csv = "timestamp_us,source,key,value,type\n";
+        // CSV header: timestamp first, then source, key, value, and numeric type
+        std::string csv = "timestamp_us,source,key,value,type\n";
 
         for (size_t i = 0; i < collected_data.size(); ++i)
         {
@@ -3203,8 +3315,10 @@ namespace wifi_monitor
             return "error\nDataLogger service not available\n";
         }
 
-        if (rate_hz == 0) rate_hz = 5;
-        if (rate_hz > 50) rate_hz = 50; // sanity cap
+        if (rate_hz == 0)
+            rate_hz = 5;
+        if (rate_hz > 50)
+            rate_hz = 50; // sanity cap
         const uint32_t period_ms = 1000 / rate_hz;
 
         auto *data_logger = data_logger_service_->getDataLogger();
@@ -3216,16 +3330,19 @@ namespace wifi_monitor
 
         // Determine start timestamp for relative time
         uint64_t start_ts = entries.front().timestamp_us;
-        for (const auto &e : entries) if (e.timestamp_us < start_ts) start_ts = e.timestamp_us;
+        for (const auto &e : entries)
+            if (e.timestamp_us < start_ts)
+                start_ts = e.timestamp_us;
 
         // Header
         std::string csv =
-            "timestamp_us,rc_input_pct,obstacle_distance_m,speed_est_kmh,brake_distance_m,safety_margin_m," \
-            "is_obstacle,is_warning,driving_forward,driving_backward,wants_reverse,throttle_pressed," \
+            "timestamp_us,rc_input_pct,obstacle_distance_m,speed_est_kmh,brake_distance_m,safety_margin_m,"
+            "is_obstacle,is_warning,driving_forward,driving_backward,wants_reverse,throttle_pressed,"
             "time_to_impact_s,deceleration_mps2,brake_events,warning_events,source\n";
 
         // State to carry forward values between samples
-        struct RowState {
+        struct RowState
+        {
             float rc_input_pct = NAN;
             float dist_m = NAN;
             float speed_kmh = NAN;
@@ -3245,9 +3362,11 @@ namespace wifi_monitor
         } state;
 
         // Helper to parse numeric safely
-        auto parseF = [](const std::string &s, float &out){
+        auto parseF = [](const std::string &s, float &out)
+        {
             char *end=nullptr; out = strtof(s.c_str(), &end); return end && *end=='\0'; };
-        auto parseU = [](const std::string &s, uint32_t &out){
+        auto parseU = [](const std::string &s, uint32_t &out)
+        {
             char *end=nullptr; unsigned long v=strtoul(s.c_str(), &end, 10); if(end&&*end=='\0'){out=(uint32_t)v; return true;} return false; };
 
         // Walk time in fixed steps, and for each bucket, fold all entries within [t, t+period)
@@ -3257,43 +3376,90 @@ namespace wifi_monitor
             // Apply entries that fall into this bucket
             for (const auto &e : entries)
             {
-                if (e.timestamp_us < t || e.timestamp_us >= t + (uint64_t)period_ms * 1000ULL) continue;
+                if (e.timestamp_us < t || e.timestamp_us >= t + (uint64_t)period_ms * 1000ULL)
+                    continue;
 
                 // Update source (last writer wins)
-                if (!e.source.empty()) state.source = e.source;
+                if (!e.source.empty())
+                    state.source = e.source;
 
                 // Normalize by key
-                if (e.key == "rc_input") {
-                    float v; if (parseF(e.value, v)) state.rc_input_pct = v * 100.0f;
-                } else if (e.key == "obstacle_distance") {
-                    float v; if (parseF(e.value, v)) {
+                if (e.key == "rc_input")
+                {
+                    float v;
+                    if (parseF(e.value, v))
+                        state.rc_input_pct = v * 100.0f;
+                }
+                else if (e.key == "obstacle_distance")
+                {
+                    float v;
+                    if (parseF(e.value, v))
+                    {
                         // Assume ControlTask may be cm; if clearly >10, convert cm->m; otherwise keep
                         state.dist_m = (v > 10.0f ? v / 100.0f : v);
                     }
-                } else if (e.key == "calculated_speed" || e.key == "speed_estimate") {
-                    float v; if (parseF(e.value, v)) state.speed_kmh = v * 3.6f; // m/s -> km/h
-                } else if (e.key == "brake_distance") {
-                    float v; if (parseF(e.value, v)) state.brake_m = (v > 10.0f ? v / 100.0f : v);
-                } else if (e.key == "safety_margin") {
-                    float v; if (parseF(e.value, v)) state.safety_m = (v > 10.0f ? v / 100.0f : v);
-                } else if (e.key == "is_obstacle_state" || e.key == "obstacle_detected") {
+                }
+                else if (e.key == "calculated_speed" || e.key == "speed_estimate")
+                {
+                    float v;
+                    if (parseF(e.value, v))
+                        state.speed_kmh = v * 3.6f; // m/s -> km/h
+                }
+                else if (e.key == "brake_distance")
+                {
+                    float v;
+                    if (parseF(e.value, v))
+                        state.brake_m = (v > 10.0f ? v / 100.0f : v);
+                }
+                else if (e.key == "safety_margin")
+                {
+                    float v;
+                    if (parseF(e.value, v))
+                        state.safety_m = (v > 10.0f ? v / 100.0f : v);
+                }
+                else if (e.key == "is_obstacle_state" || e.key == "obstacle_detected")
+                {
                     state.obstacle = (e.value == "1" || e.value == "true");
-                } else if (e.key == "is_warning_state" || e.key == "warning_active") {
+                }
+                else if (e.key == "is_warning_state" || e.key == "warning_active")
+                {
                     state.warning = (e.value == "1" || e.value == "true");
-                } else if (e.key == "driving_forward") {
+                }
+                else if (e.key == "driving_forward")
+                {
                     state.driving_fwd = (e.value == "1" || e.value == "true");
-                } else if (e.key == "wants_reverse") {
+                }
+                else if (e.key == "wants_reverse")
+                {
                     state.wants_rev = (e.value == "1" || e.value == "true");
-                } else if (e.key == "throttle_pressed") {
+                }
+                else if (e.key == "throttle_pressed")
+                {
                     state.throttle = (e.value == "1" || e.value == "true");
-                } else if (e.key == "time_to_impact") {
-                    float v; if (parseF(e.value, v)) state.tti_s = v;
-                } else if (e.key == "deceleration") {
-                    float v; if (parseF(e.value, v)) state.decel_mps2 = v;
-                } else if (e.key == "brake_events") {
-                    uint32_t v; if (parseU(e.value, v)) state.brake_events = v;
-                } else if (e.key == "warning_events") {
-                    uint32_t v; if (parseU(e.value, v)) state.warning_events = v;
+                }
+                else if (e.key == "time_to_impact")
+                {
+                    float v;
+                    if (parseF(e.value, v))
+                        state.tti_s = v;
+                }
+                else if (e.key == "deceleration")
+                {
+                    float v;
+                    if (parseF(e.value, v))
+                        state.decel_mps2 = v;
+                }
+                else if (e.key == "brake_events")
+                {
+                    uint32_t v;
+                    if (parseU(e.value, v))
+                        state.brake_events = v;
+                }
+                else if (e.key == "warning_events")
+                {
+                    uint32_t v;
+                    if (parseU(e.value, v))
+                        state.warning_events = v;
                 }
             }
 
@@ -3302,7 +3468,8 @@ namespace wifi_monitor
 
             // Write row using relative timestamp
             uint64_t rel_us = (t - start_ts);
-            auto fmtOpt = [](float v){ return std::isnan(v) ? std::string("") : std::to_string(v); };
+            auto fmtOpt = [](float v)
+            { return std::isnan(v) ? std::string("") : std::to_string(v); };
             csv += std::to_string(rel_us) + ",";
             csv += fmtOpt(state.rc_input_pct) + ",";
             csv += fmtOpt(state.dist_m) + ",";
@@ -3470,7 +3637,8 @@ namespace wifi_monitor
             if (httpd_query_key_value(query, "rate_hz", rate_buf, sizeof(rate_buf)) == ESP_OK)
             {
                 int r = atoi(rate_buf);
-                if (r > 0) rate_hz = (uint32_t)r;
+                if (r > 0)
+                    rate_hz = (uint32_t)r;
             }
         }
 

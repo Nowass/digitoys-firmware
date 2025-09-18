@@ -13,11 +13,13 @@
 #include <string>
 
 // Forward declare to avoid circular dependency
-namespace digitoys::datalogger {
+namespace digitoys::datalogger
+{
     class DataLoggerService;
 }
 
-namespace digitoys::datamodeling {
+namespace digitoys::datamodeling
+{
     class DataModeling;
 }
 
@@ -33,6 +35,28 @@ namespace wifi_monitor
         float distance = 0.0f;  ///< Distance to obstacle (meters)
         float speed_est = 0.0f; ///< Estimated speed
         uint32_t timestamp = 0; ///< Timestamp of the data
+    };
+
+    /**
+     * @brief Unified telemetry frame for high-fidelity streaming
+     * Flat schema; single source of truth for real-time dashboard & logging.
+     * Times are microseconds since boot (esp_timer_get_time). Sequence wraps on overflow.
+     */
+    struct TelemetryFrame
+    {
+        uint64_t ts_us = 0;               ///< Monotonic timestamp (µs)
+        uint32_t seq = 0;                 ///< Incrementing sequence id (wraps)
+        float rc_duty_raw = 0.0f;         ///< Raw RC duty (e.g. 0.06-0.12)
+        bool rc_throttle_pressed = false; ///< Any non-neutral throttle pressed
+        bool rc_forward = false;          ///< Forward intent flag
+        bool rc_reverse = false;          ///< Reverse intent flag
+        float lidar_distance_m = 0.0f;    ///< Latest LiDAR distance (meters)
+        bool obstacle_detected = false;   ///< Obstacle condition (brake)
+        bool warning_active = false;      ///< Warning condition
+        float brake_distance_m = 0.0f;    ///< Dynamic brake distance threshold
+        float warning_distance_m = 0.0f;  ///< Dynamic warning distance threshold
+        float safety_margin_m = 0.0f;     ///< (distance - brake_distance) if obstacle/warning relevant
+        float speed_approx_mps = 0.0f;    ///< Approximate forward speed (derived)
     };
 
     /**
@@ -80,13 +104,14 @@ namespace wifi_monitor
          * @brief Construct the WiFi Monitor component
          * @param data_logger_service Optional DataLogger service for logging control
          */
-        WifiMonitor(digitoys::datalogger::DataLoggerService* data_logger_service = nullptr) 
+        WifiMonitor(digitoys::datalogger::DataLoggerService *data_logger_service = nullptr)
             : ComponentBase("WifiMonitor"), data_logger_service_(data_logger_service) {}
 
         /**
          * @brief Set the DataLogger service for logging control (can be called after construction)
          */
-        void setDataLoggerService(digitoys::datalogger::DataLoggerService* data_logger_service) {
+        void setDataLoggerService(digitoys::datalogger::DataLoggerService *data_logger_service)
+        {
             data_logger_service_ = data_logger_service;
             setupDataLoggerStreaming();
         }
@@ -94,7 +119,8 @@ namespace wifi_monitor
         /**
          * @brief Set the DataModeling service for session control (can be called after construction)
          */
-        void setDataModelingService(digitoys::datamodeling::DataModeling* data_modeling_service) {
+        void setDataModelingService(digitoys::datamodeling::DataModeling *data_modeling_service)
+        {
             data_modeling_service_ = data_modeling_service;
         }
 
@@ -156,6 +182,21 @@ namespace wifi_monitor
                                    bool wants_reverse, bool obstacle_detected, bool warning_active);
 
         /**
+         * @brief Submit a unified telemetry frame for streaming.
+         * Computes derived fields (seq, speed_approx, safety_margin) and stores last frame.
+         * Thread-safe.
+         * @param frame Partially filled frame (ts_us may be 0 to auto-fill)
+         */
+        void submitTelemetryFrame(const TelemetryFrame &frame);
+
+        /**
+         * @brief Retrieve the most recent telemetry frame.
+         * @param out Destination frame
+         * @return true if a frame was available
+         */
+        bool getLastTelemetryFrame(TelemetryFrame &out) const;
+
+        /**
          * @brief Start diagnostic logging
          * @return ESP_OK on success
          */
@@ -197,18 +238,18 @@ namespace wifi_monitor
          */
         std::string getDataLoggerCSV() const;
 
-    /**
-     * @brief Get aggregated physics data as a wide CSV at a fixed rate
-     * @param rate_hz Sampling rate in Hz (default 5)
-     * @return CSV string with wide rows and normalized units
-     */
-    std::string getDataLoggerWideCSV(uint32_t rate_hz = 5) const;
+        /**
+         * @brief Get aggregated physics data as a wide CSV at a fixed rate
+         * @param rate_hz Sampling rate in Hz (default 5)
+         * @return CSV string with wide rows and normalized units
+         */
+        std::string getDataLoggerWideCSV(uint32_t rate_hz = 5) const;
 
         /**
          * @brief Add system log entry for console display
          * @param log_line Complete formatted log line from ESP-IDF
          */
-        void addSystemLogEntry(const std::string& log_line);
+        void addSystemLogEntry(const std::string &log_line);
 
         /**
          * @brief Get recent system logs for console display
@@ -245,7 +286,7 @@ namespace wifi_monitor
         static void webSocketTaskFunction(void *param);
         void webSocketBroadcastLoop();
         esp_err_t broadcastTelemetry();
-        esp_err_t broadcastDataEntry(const std::string& data_json);
+        esp_err_t broadcastDataEntry(const std::string &data_json);
         void cleanupDisconnectedClients();
         void setupDataLoggerStreaming();
 
@@ -263,9 +304,16 @@ namespace wifi_monitor
         bool isWebSocketFrame(httpd_req_t *req);
 
     private:
+        // Unified telemetry frame storage (protected by telemetry_mutex_)
+        TelemetryFrame last_frame_{};   ///< Most recent telemetry frame
+        TelemetryFrame prev_frame_{};   ///< Previous telemetry frame (for derivatives)
+        bool last_frame_valid_ = false; ///< Indicates at least one frame submitted
+        bool prev_frame_valid_ = false; ///< Indicates previous frame valid
+        uint32_t frame_seq_ = 0;        ///< Sequence counter
+
         // Service integrations
-        digitoys::datalogger::DataLoggerService* data_logger_service_ = nullptr;
-        digitoys::datamodeling::DataModeling* data_modeling_service_ = nullptr;
+        digitoys::datalogger::DataLoggerService *data_logger_service_ = nullptr;
+        digitoys::datamodeling::DataModeling *data_modeling_service_ = nullptr;
 
         // Network interfaces
         esp_netif_t *ap_netif_ = nullptr;
@@ -275,7 +323,7 @@ namespace wifi_monitor
 
         // WebSocket clients management
         std::vector<int> websocket_clients_;
-        std::vector<int> websocket_data_clients_;  // Separate list for data streaming clients
+        std::vector<int> websocket_data_clients_; // Separate list for data streaming clients
         SemaphoreHandle_t ws_clients_mutex_ = nullptr;
 
         // Telemetry data protection
@@ -301,7 +349,7 @@ namespace wifi_monitor
         static WifiMonitor *instance_;
 
         // Log capture hook
-        static int logHook(const char* format, va_list args);
+        static int logHook(const char *format, va_list args);
     };
 
 } // namespace wifi_monitor

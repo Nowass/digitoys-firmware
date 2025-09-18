@@ -169,6 +169,24 @@ namespace control
         // Update telemetry and logging
         updateTelemetry(lidar_info, rc_status);
         logDiagnostics(rc_status, dynamic_brake_distance, dynamic_warning_distance, lidar_info.distance);
+
+        // Unified telemetry frame submission (experimental)
+        wifi_monitor::WifiMonitor *wifi_monitor = static_cast<wifi_monitor::WifiMonitor *>(ctx_->monitor);
+        if (wifi_monitor)
+        {
+            wifi_monitor::TelemetryFrame frame{};
+            frame.rc_duty_raw = rc_status.current_input;
+            frame.rc_throttle_pressed = rc_status.throttle_pressed;
+            frame.rc_forward = rc_status.driving_forward;
+            frame.rc_reverse = rc_status.wants_reverse;
+            frame.lidar_distance_m = lidar_info.distance;
+            frame.obstacle_detected = state_.isObstacleState();
+            frame.warning_active = state_.isWarningState();
+            frame.brake_distance_m = dynamic_brake_distance;
+            frame.warning_distance_m = dynamic_warning_distance;
+            // safety_margin_m & speed_approx_mps derived in submitTelemetryFrame
+            wifi_monitor->submitTelemetryFrame(frame);
+        }
     }
 
     void ControlTask::updateTelemetry(const lidar::ObstacleInfo &lidar_info,
@@ -189,7 +207,7 @@ namespace control
         // Send diagnostic data to WiFi Monitor if it's a WifiMonitor instance
         // Note: Using static_cast since RTTI is disabled in ESP-IDF
         // We assume ctx_->monitor is always a WifiMonitor in this configuration
-        wifi_monitor::WifiMonitor* wifi_monitor = static_cast<wifi_monitor::WifiMonitor*>(ctx_->monitor);
+        wifi_monitor::WifiMonitor *wifi_monitor = static_cast<wifi_monitor::WifiMonitor *>(ctx_->monitor);
         if (wifi_monitor)
         {
             wifi_monitor->logControlDiagnostics(
@@ -204,8 +222,7 @@ namespace control
                 rc_status.driving_forward,
                 rc_status.wants_reverse,
                 state_.isObstacleState(),
-                state_.isWarningState()
-            );
+                state_.isWarningState());
         }
 
         // Debug log dynamic thresholds (every 2 seconds) when driving forward
@@ -213,7 +230,7 @@ namespace control
         {
             state_.getThresholdLogCounter() = 0;
             DIGITOYS_LOGI("ControlTask", "Speed: %.4f, BrakeDist: %.2fm, WarnDist: %.2fm, ActualDist: %.2fm",
-                     rc_status.current_input, dynamic_brake_distance, dynamic_warning_distance, distance);
+                          rc_status.current_input, dynamic_brake_distance, dynamic_warning_distance, distance);
         }
     }
 

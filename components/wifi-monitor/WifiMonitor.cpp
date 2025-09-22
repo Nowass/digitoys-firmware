@@ -329,53 +329,63 @@ namespace wifi_monitor
                         xSemaphoreGive(ws_clients_mutex_);
                     }
                     DIGITOYS_LOGD("WifiMonitor", "CSVstream active: seq=%u, data_clients=%u, csv_clients=%u",
-                                   (unsigned)last_frame_.seq, (unsigned)data_clients, (unsigned)csv_clients);
+                                  (unsigned)last_frame_.seq, (unsigned)data_clients, (unsigned)csv_clients);
                 }
                 char csv_row[256];
                 int len = snprintf(csv_row, sizeof(csv_row), "%u,%llu,%.6f,%d,%d,%d,%.4f,%.4f,%d,%d,%.4f,%.4f,%.4f,%.6f",
-                    (unsigned)last_frame_.seq,
-                    (unsigned long long)last_frame_.ts_us,
-                    last_frame_.rc_duty_raw,
-                    last_frame_.rc_throttle_pressed ? 1 : 0,
-                    last_frame_.rc_forward ? 1 : 0,
-                    last_frame_.rc_reverse ? 1 : 0,
-                    last_frame_.lidar_distance_m,
-                    last_frame_.lidar_filtered_m,
-                    last_frame_.obstacle_detected ? 1 : 0,
-                    last_frame_.warning_active ? 1 : 0,
-                    last_frame_.brake_distance_m,
-                    last_frame_.warning_distance_m,
-                    last_frame_.safety_margin_m,
-                    last_frame_.speed_approx_mps
-                );
-                if (len > 0 && len < (int)sizeof(csv_row)) {
-                    if (xSemaphoreTake(ws_clients_mutex_, pdMS_TO_TICKS(5)) == pdTRUE) {
+                                   (unsigned)last_frame_.seq,
+                                   (unsigned long long)last_frame_.ts_us,
+                                   last_frame_.rc_duty_raw,
+                                   last_frame_.rc_throttle_pressed ? 1 : 0,
+                                   last_frame_.rc_forward ? 1 : 0,
+                                   last_frame_.rc_reverse ? 1 : 0,
+                                   last_frame_.lidar_distance_m,
+                                   last_frame_.lidar_filtered_m,
+                                   last_frame_.obstacle_detected ? 1 : 0,
+                                   last_frame_.warning_active ? 1 : 0,
+                                   last_frame_.brake_distance_m,
+                                   last_frame_.warning_distance_m,
+                                   last_frame_.safety_margin_m,
+                                   last_frame_.speed_approx_mps);
+                if (len > 0 && len < (int)sizeof(csv_row))
+                {
+                    if (xSemaphoreTake(ws_clients_mutex_, pdMS_TO_TICKS(5)) == pdTRUE)
+                    {
                         // Send to CSV clients first (unconditional)
-                        for (auto it = websocket_csv_clients_.begin(); it != websocket_csv_clients_.end(); ) {
+                        for (auto it = websocket_csv_clients_.begin(); it != websocket_csv_clients_.end();)
+                        {
                             httpd_ws_frame_t ws_pkt = {};
                             ws_pkt.payload = (uint8_t *)csv_row;
                             ws_pkt.len = len;
                             ws_pkt.type = HTTPD_WS_TYPE_TEXT;
                             int sockfd = *it;
-                            if (httpd_ws_send_frame_async(server_, sockfd, &ws_pkt) != ESP_OK) {
+                            if (httpd_ws_send_frame_async(server_, sockfd, &ws_pkt) != ESP_OK)
+                            {
                                 DIGITOYS_LOGW("WifiMonitor", "CSVstream: removing disconnected CSV client %d", sockfd);
                                 it = websocket_csv_clients_.erase(it);
-                            } else {
+                            }
+                            else
+                            {
                                 ++it;
                             }
                         }
                         // Optionally also send to data clients, but only when logging is active (compat)
-                        if (logging_active_) {
-                            for (auto it = websocket_data_clients_.begin(); it != websocket_data_clients_.end(); ) {
+                        if (logging_active_)
+                        {
+                            for (auto it = websocket_data_clients_.begin(); it != websocket_data_clients_.end();)
+                            {
                                 httpd_ws_frame_t ws_pkt = {};
                                 ws_pkt.payload = (uint8_t *)csv_row;
                                 ws_pkt.len = len;
                                 ws_pkt.type = HTTPD_WS_TYPE_TEXT;
                                 int sockfd = *it;
-                                if (httpd_ws_send_frame_async(server_, sockfd, &ws_pkt) != ESP_OK) {
+                                if (httpd_ws_send_frame_async(server_, sockfd, &ws_pkt) != ESP_OK)
+                                {
                                     DIGITOYS_LOGW("WifiMonitor", "CSVstream: removing disconnected data client %d", sockfd);
                                     it = websocket_data_clients_.erase(it);
-                                } else {
+                                }
+                                else
+                                {
                                     ++it;
                                 }
                             }
@@ -683,7 +693,8 @@ namespace wifi_monitor
         httpd_uri_t unified_uri = {
             .uri = "/unified",
             .method = HTTP_GET,
-            .handler = [](httpd_req_t *req) -> esp_err_t {
+            .handler = [](httpd_req_t *req) -> esp_err_t
+            {
                 const char *html =
                     "<!DOCTYPE html><html><head><meta charset='utf-8'/><title>Unified Telemetry</title>"
                     "<style>body{font-family:Arial;margin:12px;background:#111;color:#eee}table{border-collapse:collapse}td,th{border:1px solid #444;padding:4px 8px}#status{margin:8px 0} .ok{color:#4caf50}.warn{color:#ff9800}.bad{color:#f44336}</style>"
@@ -699,7 +710,7 @@ namespace wifi_monitor
                 httpd_resp_set_type(req, "text/html");
                 httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
                 httpd_resp_send(req, html, HTTPD_RESP_USE_STRLEN);
-                return ESP_OK; } ,
+                return ESP_OK; },
             .user_ctx = nullptr};
         httpd_register_uri_handler(server_, &unified_uri);
 
@@ -2111,6 +2122,51 @@ namespace wifi_monitor
                 console.error('Failed writing wide CSV row:', err);
             }
         }
+
+        // --- CSV live logger via dedicated WS (/ws/csv) ---
+        let csvWS = null;
+        let csvRows = [];
+        let csvGotHeader = false;
+        const CSV_HEADER_STR = 'seq,ts_us,rc_duty_raw,rc_throttle_pressed,rc_forward,rc_reverse,lidar_distance_m,lidar_filtered_m,obstacle_detected,warning_active,brake_distance_m,warning_distance_m,safety_margin_m,speed_approx_mps';
+
+        function startCsvStream() {
+            if (csvWS) { try { csvWS.close(); } catch(e){} csvWS = null; }
+            csvRows = [];
+            csvGotHeader = false;
+            const wsUrl = `ws://${window.location.host}/ws/csv`;
+            console.log('CSV logger connecting:', wsUrl);
+            csvWS = new WebSocket(wsUrl);
+            csvWS.onopen = () => console.log('CSV logger connected');
+            csvWS.onmessage = (e) => {
+                const text = typeof e.data === 'string' ? e.data : '';
+                // Split in case multiple lines arrive in a single frame
+                text.split('\n').forEach(line => {
+                    const s = line.trim();
+                    if (!s) return;
+                    if (!csvGotHeader && s.startsWith('seq,')) { csvRows.push(s); csvGotHeader = true; return; }
+                    if (s.split(',').length === 14) { csvRows.push(s); }
+                });
+            };
+            csvWS.onerror = (e) => console.warn('CSV logger error', e);
+            csvWS.onclose = () => console.log('CSV logger closed');
+        }
+
+        function stopCsvStreamAndDownload() {
+            if (csvWS) { try { csvWS.close(); } catch(e){} csvWS = null; }
+            // Ensure header exists for download
+            const hasHeader = csvRows.length > 0 && csvRows[0].startsWith('seq,');
+            const rows = hasHeader ? csvRows : [CSV_HEADER_STR, ...csvRows];
+            const csvContent = rows.join('\n');
+            const blob = new Blob([csvContent], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'digitoys-telemetry-' + new Date().toISOString().replace(/[:.]/g, '-') + '.csv';
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+            console.log('CSV file downloaded, rows:', rows.length);
+        }
         
         // Logging functionality - Phase 2
         var loggingActive = false;
@@ -2195,8 +2251,10 @@ namespace wifi_monitor
                     document.getElementById('chartsStatus').textContent = '(Live Updates)';
                     document.getElementById('chartsStatus').style.color = '#2ea043';
                     
-                    // Start file streaming
+                    // Start file streaming (legacy diagnostic flow)
                     startFileStreaming();
+                    // Start dedicated CSV streaming for unified TelemetryFrame
+                    startCsvStream();
                     
                     console.log('Logging started successfully');
                 }
@@ -2250,8 +2308,10 @@ namespace wifi_monitor
                     document.getElementById('chartsStatus').textContent = '(Showing Last Logged Data)';
                     document.getElementById('chartsStatus').style.color = '#d29922';
                     
-                    // Stop file streaming
+                    // Stop file streaming (legacy diagnostic flow)
                     stopFileStreaming();
+                    // Stop CSV stream and download collected data
+                    stopCsvStreamAndDownload();
                     
                     console.log('Logging stopped successfully');
                 }
@@ -3037,7 +3097,8 @@ namespace wifi_monitor
         if (req->method == HTTP_GET)
         {
             // Distinguish plain HTTP GET vs WebSocket upgrade
-            if (!isWebSocketFrame(req)) {
+            if (!isWebSocketFrame(req))
+            {
                 const char *msg = "<!DOCTYPE html><html><body><h3>/ws/csv</h3><p>This is a WebSocket endpoint for live CSV streaming.</p><p>Please use ws://&lt;host&gt;/ws/csv from a WebSocket client.</p></body></html>";
                 httpd_resp_set_type(req, "text/html");
                 httpd_resp_send(req, msg, HTTPD_RESP_USE_STRLEN);
@@ -3926,7 +3987,8 @@ namespace wifi_monitor
         if (httpd_req_get_hdr_value_str(req, "Upgrade", upgrade, sizeof(upgrade)) == ESP_OK)
         {
             // Case-insensitive compare
-            for (char *p = upgrade; *p; ++p) *p = (char)tolower((unsigned char)*p);
+            for (char *p = upgrade; *p; ++p)
+                *p = (char)tolower((unsigned char)*p);
             if (strcmp(upgrade, "websocket") == 0)
                 return true;
         }

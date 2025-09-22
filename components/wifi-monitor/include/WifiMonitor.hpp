@@ -297,13 +297,13 @@ namespace wifi_monitor
         static esp_err_t indexGetHandler(httpd_req_t *req);
         static esp_err_t websocketHandler(httpd_req_t *req);
         static esp_err_t websocketDataHandler(httpd_req_t *req);
-    static esp_err_t websocketCsvHandler(httpd_req_t *req);
+        static esp_err_t websocketCsvHandler(httpd_req_t *req);
         static esp_err_t loggingControlHandler(httpd_req_t *req);
         static esp_err_t loggingDataHandler(httpd_req_t *req);
 
         // Helper methods
         static esp_err_t addCorsHeaders(httpd_req_t *req);
-    static bool isWebSocketFrame(httpd_req_t *req);
+        static bool isWebSocketFrame(httpd_req_t *req);
 
     private:
         // Unified telemetry frame storage (protected by telemetry_mutex_)
@@ -326,7 +326,7 @@ namespace wifi_monitor
         // WebSocket clients management
         std::vector<int> websocket_clients_;
         std::vector<int> websocket_data_clients_; // Separate list for data streaming clients
-    std::vector<int> websocket_csv_clients_;  // Dedicated CSV clients (header + rows)
+        std::vector<int> websocket_csv_clients_;  // Dedicated CSV clients (header + rows)
         SemaphoreHandle_t ws_clients_mutex_ = nullptr;
 
         // Telemetry data protection
@@ -337,14 +337,14 @@ namespace wifi_monitor
         TaskHandle_t ws_task_handle_ = nullptr;
         volatile bool ws_task_running_ = false;
 
-    // Diagnostic logging
-    std::vector<DiagnosticEntry> diagnostic_log_;
-    SemaphoreHandle_t diagnostic_mutex_ = nullptr;
-    bool logging_active_ = false;
-    static constexpr size_t MAX_LOG_ENTRIES = 1000; // Limit log size
+        // Diagnostic logging
+        std::vector<DiagnosticEntry> diagnostic_log_;
+        SemaphoreHandle_t diagnostic_mutex_ = nullptr;
+        bool logging_active_ = false;
+        static constexpr size_t MAX_LOG_ENTRIES = 1000; // Limit log size
 
-    // CSV logging for TelemetryFrame
-    // CSV file members removed; streaming only.
+        // CSV logging for TelemetryFrame
+        // CSV file members removed; streaming only.
 
         // System log capture for console display
         std::vector<std::string> system_log_buffer_;

@@ -1,7 +1,6 @@
 // Primary implementation file for WifiMonitor. Fixed corrupted content, added
 // missing includes and proper namespace scoping.
 #include "WifiMonitor.hpp"
-#include "SystemMonitor.hpp"
 #include <Logger.hpp>
 
 #include <algorithm>

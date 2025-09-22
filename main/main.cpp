@@ -5,9 +5,7 @@
 #include "adas_pwm_driver.hpp"
 #include "LiDARConfig.hpp"
 #include "LiDAR.hpp"
-#include "Monitor.hpp"
-#include "WifiMonitor.hpp" // Add our new component
-#include "SystemMonitor.hpp"
+#include "WifiMonitor.hpp" // New WiFi monitor component
 #include "ControlTask.hpp"
 // DataLogger/DataModeling removed in unified streaming architecture
 

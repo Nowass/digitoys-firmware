@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Digitoys CSV Logger</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #181c20; color: #eee; padding: 2rem; }
+    button { margin: 1rem 0.5rem 1rem 0; padding: 0.5rem 1.5rem; font-size: 1.1rem; }
+    #log { width: 100%; height: 200px; background: #222; color: #8f8; font-family: monospace; margin-top: 1rem; overflow-y: auto; }
+  </style>
+</head>
+<body>
+  <h1>Digitoys CSV Logger (WebSocket)</h1>
+  <button id="startBtn">Start Logging</button>
+  <button id="stopBtn" disabled>Stop & Download CSV</button>
+  <div id="log"></div>
+  <script>
+  // Connect to the dedicated CSV WebSocket; if opened from file://, fall back to AP IP
+  const host = location.host || '192.168.4.1';
+  const WS_URL = `ws://${host}/ws/csv`;
+    let ws = null;
+    let csvRows = [];
+    let gotHeader = false;
+    let logging = false;
+    const logDiv = document.getElementById('log');
+    function log(msg) { logDiv.textContent += msg + '\n'; logDiv.scrollTop = logDiv.scrollHeight; }
+    document.getElementById('startBtn').onclick = () => {
+      if (logging) return;
+      csvRows = [];
+      gotHeader = false;
+      ws = new WebSocket(WS_URL);
+      ws.onopen = () => { log('WebSocket connected. Logging started.'); logging = true; document.getElementById('stopBtn').disabled = false; };
+      ws.onmessage = (e) => {
+        const data = typeof e.data === 'string' ? e.data : '';
+        // Log a short preview to avoid flooding
+        log('[RECV] ' + (data.length > 80 ? data.slice(0, 80) + '…' : data));
+        // Split in case multiple lines arrive together
+        data.split('\n').forEach(line => {
+          const s = line.trim();
+          if (!s) return;
+          if (!gotHeader && s.startsWith('seq,')) {
+            csvRows.push(s);
+            gotHeader = true;
+            return;
+          }
+          // Expect exactly 14 columns per our TelemetryFrame CSV
+          if (s.split(',').length === 14) {
+            csvRows.push(s);
+          }
+        });
+      };
+      ws.onclose = () => { log('WebSocket closed.'); logging = false; document.getElementById('stopBtn').disabled = true; };
+      ws.onerror = (e) => { log('WebSocket error.'); };
+      document.getElementById('startBtn').disabled = true;
+    };
+    document.getElementById('stopBtn').onclick = () => {
+      if (ws) ws.close();
+      logging = false;
+      document.getElementById('startBtn').disabled = false;
+      document.getElementById('stopBtn').disabled = true;
+      // Download CSV (header + rows already collected from server)
+      const csvContent = csvRows.join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'digitoys-telemetry-' + new Date().toISOString().replace(/[:.]/g, '-') + '.csv';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+      log('CSV file downloaded.');
+    };
+  </script>
+</body>
+</html>

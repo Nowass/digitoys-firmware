@@ -279,11 +279,22 @@ namespace wifi_monitor
             last_frame_.ts_us = now_us;
             last_frame_.seq = frame_seq_++;
 
-            // Derive speed if we have previous frame and time advanced
+            // --- Exponential smoothing for lidar_filtered_m ---
+            constexpr float alpha = 0.25f; // smoothing factor (0.0 = no update, 1.0 = instant)
+            if (last_frame_valid_)
+            {
+                last_frame_.lidar_filtered_m = alpha * last_frame_.lidar_distance_m + (1.0f - alpha) * prev_frame_.lidar_filtered_m;
+            }
+            else
+            {
+                last_frame_.lidar_filtered_m = last_frame_.lidar_distance_m;
+            }
+
+            // Derive speed if we have previous frame and time advanced (use filtered value)
             if (prev_frame_valid_)
             {
                 int64_t dt_us = (int64_t)last_frame_.ts_us - (int64_t)prev_frame_.ts_us;
-                float dd = prev_frame_.lidar_distance_m - last_frame_.lidar_distance_m; // positive if moving forward toward obstacle
+                float dd = prev_frame_.lidar_filtered_m - last_frame_.lidar_filtered_m; // positive if moving forward toward obstacle
                 if (dt_us > 0 && dd > 0.0f)
                 {
                     last_frame_.speed_approx_mps = dd / (dt_us / 1e6f);
@@ -303,6 +314,77 @@ namespace wifi_monitor
 
             last_frame_valid_ = true;
 
+            // Unconditionally stream CSV row to dedicated CSV clients (header already sent)
+            {
+                // Debug (rate-limited) to confirm path is active and client counts
+                static uint32_t dbg_count = 0;
+                if ((dbg_count++ % 50) == 0)
+                {
+                    size_t data_clients = 0;
+                    size_t csv_clients = 0;
+                    if (xSemaphoreTake(ws_clients_mutex_, 0) == pdTRUE)
+                    {
+                        data_clients = websocket_data_clients_.size();
+                        csv_clients = websocket_csv_clients_.size();
+                        xSemaphoreGive(ws_clients_mutex_);
+                    }
+                    DIGITOYS_LOGD("WifiMonitor", "CSVstream active: seq=%u, data_clients=%u, csv_clients=%u",
+                                   (unsigned)last_frame_.seq, (unsigned)data_clients, (unsigned)csv_clients);
+                }
+                char csv_row[256];
+                int len = snprintf(csv_row, sizeof(csv_row), "%u,%llu,%.6f,%d,%d,%d,%.4f,%.4f,%d,%d,%.4f,%.4f,%.4f,%.6f",
+                    (unsigned)last_frame_.seq,
+                    (unsigned long long)last_frame_.ts_us,
+                    last_frame_.rc_duty_raw,
+                    last_frame_.rc_throttle_pressed ? 1 : 0,
+                    last_frame_.rc_forward ? 1 : 0,
+                    last_frame_.rc_reverse ? 1 : 0,
+                    last_frame_.lidar_distance_m,
+                    last_frame_.lidar_filtered_m,
+                    last_frame_.obstacle_detected ? 1 : 0,
+                    last_frame_.warning_active ? 1 : 0,
+                    last_frame_.brake_distance_m,
+                    last_frame_.warning_distance_m,
+                    last_frame_.safety_margin_m,
+                    last_frame_.speed_approx_mps
+                );
+                if (len > 0 && len < (int)sizeof(csv_row)) {
+                    if (xSemaphoreTake(ws_clients_mutex_, pdMS_TO_TICKS(5)) == pdTRUE) {
+                        // Send to CSV clients first (unconditional)
+                        for (auto it = websocket_csv_clients_.begin(); it != websocket_csv_clients_.end(); ) {
+                            httpd_ws_frame_t ws_pkt = {};
+                            ws_pkt.payload = (uint8_t *)csv_row;
+                            ws_pkt.len = len;
+                            ws_pkt.type = HTTPD_WS_TYPE_TEXT;
+                            int sockfd = *it;
+                            if (httpd_ws_send_frame_async(server_, sockfd, &ws_pkt) != ESP_OK) {
+                                DIGITOYS_LOGW("WifiMonitor", "CSVstream: removing disconnected CSV client %d", sockfd);
+                                it = websocket_csv_clients_.erase(it);
+                            } else {
+                                ++it;
+                            }
+                        }
+                        // Optionally also send to data clients, but only when logging is active (compat)
+                        if (logging_active_) {
+                            for (auto it = websocket_data_clients_.begin(); it != websocket_data_clients_.end(); ) {
+                                httpd_ws_frame_t ws_pkt = {};
+                                ws_pkt.payload = (uint8_t *)csv_row;
+                                ws_pkt.len = len;
+                                ws_pkt.type = HTTPD_WS_TYPE_TEXT;
+                                int sockfd = *it;
+                                if (httpd_ws_send_frame_async(server_, sockfd, &ws_pkt) != ESP_OK) {
+                                    DIGITOYS_LOGW("WifiMonitor", "CSVstream: removing disconnected data client %d", sockfd);
+                                    it = websocket_data_clients_.erase(it);
+                                } else {
+                                    ++it;
+                                }
+                            }
+                        }
+                        xSemaphoreGive(ws_clients_mutex_);
+                    }
+                }
+            }
+
             // Prepare JSON for WebSocket clients (data channel)
             if (!websocket_data_clients_.empty())
             {
@@ -314,6 +396,7 @@ namespace wifi_monitor
                 cJSON_AddBoolToObject(root, "rc_forward", last_frame_.rc_forward);
                 cJSON_AddBoolToObject(root, "rc_reverse", last_frame_.rc_reverse);
                 cJSON_AddNumberToObject(root, "lidar_distance_m", last_frame_.lidar_distance_m);
+                cJSON_AddNumberToObject(root, "lidar_filtered_m", last_frame_.lidar_filtered_m);
                 cJSON_AddBoolToObject(root, "obstacle_detected", last_frame_.obstacle_detected);
                 cJSON_AddBoolToObject(root, "warning_active", last_frame_.warning_active);
                 cJSON_AddNumberToObject(root, "brake_distance_m", last_frame_.brake_distance_m);
@@ -560,8 +643,17 @@ namespace wifi_monitor
             .user_ctx = nullptr,
             .is_websocket = true,
             .handle_ws_control_frames = true};
+        // WebSocket route for CSV streaming
+        httpd_uri_t ws_csv_uri = {
+            .uri = "/ws/csv",
+            .method = HTTP_GET,
+            .handler = websocketCsvHandler,
+            .user_ctx = nullptr,
+            .is_websocket = true,
+            .handle_ws_control_frames = true};
         httpd_register_uri_handler(server_, &ws_uri);
         httpd_register_uri_handler(server_, &ws_data_uri);
+        httpd_register_uri_handler(server_, &ws_csv_uri);
 
         // Logging control endpoint (start/stop/clear logging)
         httpd_uri_t logging_control_uri = {
@@ -586,6 +678,30 @@ namespace wifi_monitor
             .handler = loggingDataHandler,
             .user_ctx = nullptr};
         httpd_register_uri_handler(server_, &logging_data_uri);
+
+        // Unified telemetry minimal dashboard
+        httpd_uri_t unified_uri = {
+            .uri = "/unified",
+            .method = HTTP_GET,
+            .handler = [](httpd_req_t *req) -> esp_err_t {
+                const char *html =
+                    "<!DOCTYPE html><html><head><meta charset='utf-8'/><title>Unified Telemetry</title>"
+                    "<style>body{font-family:Arial;margin:12px;background:#111;color:#eee}table{border-collapse:collapse}td,th{border:1px solid #444;padding:4px 8px}#status{margin:8px 0} .ok{color:#4caf50}.warn{color:#ff9800}.bad{color:#f44336}</style>"
+                    "</head><body><h2>Unified Telemetry Frame</h2><div id='status'>Connecting...</div>"
+                    "<table id='t'><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody></tbody></table>"
+                    "<script>const tbody=document.querySelector('#t tbody');const status=document.getElementById('status');"
+                    "const fields=['seq','ts_us','rc_duty_raw','rc_throttle_pressed','rc_forward','rc_reverse','lidar_distance_m','lidar_filtered_m','obstacle_detected','warning_active','brake_distance_m','warning_distance_m','safety_margin_m','speed_approx_mps'];"
+                    "function ensureRows(){if(tbody.children.length===0){for(const f of fields){const tr=document.createElement('tr');tr.innerHTML='<td>'+f+'</td><td id=val_'+f+'></td>';tbody.appendChild(tr);}}}ensureRows();"
+                    "function fmt(v){if(typeof v==='number'){if(Math.abs(v)>1000)return v.toFixed(0);if(Math.abs(v)>10)return v.toFixed(3);return v.toFixed(4);}return v;}"
+                    "function update(d){for(const f of fields){const el=document.getElementById('val_'+f);if(el&&f in d)el.textContent=fmt(d[f]);}status.textContent='Live (seq '+d.seq+')';status.className='ok';}"
+                    "function connect(){const proto=location.protocol==='https:'?'wss':'ws';const ws=new WebSocket(proto+'://'+location.host+'/ws/data');ws.onopen=()=>{status.textContent='Connected';status.className='ok';};ws.onmessage=e=>{try{update(JSON.parse(e.data));}catch(err){console.error(err);} };ws.onclose=()=>{status.textContent='Reconnecting...';status.className='warn';setTimeout(connect,1000);};ws.onerror=()=>ws.close();}connect();"
+                    "</script></body></html>";
+                httpd_resp_set_type(req, "text/html");
+                httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+                httpd_resp_send(req, html, HTTPD_RESP_USE_STRLEN);
+                return ESP_OK; } ,
+            .user_ctx = nullptr};
+        httpd_register_uri_handler(server_, &unified_uri);
 
         DIGITOYS_LOGI("WifiMonitor", "HTTP server started on port %d with WebSocket support", config.server_port);
         return ESP_OK;
@@ -2641,6 +2757,14 @@ namespace wifi_monitor
         if (req->method == HTTP_GET)
         {
             DIGITOYS_LOGI("WifiMonitor", "WebSocket handshake from client");
+            // Track generic WS clients as best-effort (system dashboard channel)
+            if (xSemaphoreTake(instance_->ws_clients_mutex_, pdMS_TO_TICKS(1000)) == pdTRUE)
+            {
+                int sockfd = httpd_req_to_sockfd(req);
+                instance_->websocket_clients_.push_back(sockfd);
+                DIGITOYS_LOGD("WifiMonitor", "Added WS client: %d (total=%u)", sockfd, (unsigned)instance_->websocket_clients_.size());
+                xSemaphoreGive(instance_->ws_clients_mutex_);
+            }
             return ESP_OK;
         }
 
@@ -2821,6 +2945,18 @@ namespace wifi_monitor
         else if (ws_pkt.type == HTTPD_WS_TYPE_CLOSE)
         {
             DIGITOYS_LOGI("WifiMonitor", "WebSocket connection closed by client");
+            // Remove from generic WS clients list
+            if (xSemaphoreTake(instance_->ws_clients_mutex_, pdMS_TO_TICKS(1000)) == pdTRUE)
+            {
+                int sockfd = httpd_req_to_sockfd(req);
+                auto it = std::find(instance_->websocket_clients_.begin(), instance_->websocket_clients_.end(), sockfd);
+                if (it != instance_->websocket_clients_.end())
+                {
+                    instance_->websocket_clients_.erase(it);
+                    DIGITOYS_LOGD("WifiMonitor", "Removed WS client: %d (total=%u)", sockfd, (unsigned)instance_->websocket_clients_.size());
+                }
+                xSemaphoreGive(instance_->ws_clients_mutex_);
+            }
         }
 
         if (buf)
@@ -2847,7 +2983,7 @@ namespace wifi_monitor
             {
                 int sockfd = httpd_req_to_sockfd(req);
                 instance_->websocket_data_clients_.push_back(sockfd);
-                DIGITOYS_LOGI("WifiMonitor", "Added data streaming client: %d", sockfd);
+                DIGITOYS_LOGI("WifiMonitor", "Added data streaming client: %d (total=%u)", sockfd, (unsigned)instance_->websocket_data_clients_.size());
                 xSemaphoreGive(instance_->ws_clients_mutex_);
             }
 
@@ -2877,7 +3013,7 @@ namespace wifi_monitor
                 if (it != instance_->websocket_data_clients_.end())
                 {
                     instance_->websocket_data_clients_.erase(it);
-                    DIGITOYS_LOGI("WifiMonitor", "Removed data streaming client: %d", sockfd);
+                    DIGITOYS_LOGI("WifiMonitor", "Removed data streaming client: %d (total=%u)", sockfd, (unsigned)instance_->websocket_data_clients_.size());
                 }
                 xSemaphoreGive(instance_->ws_clients_mutex_);
             }
@@ -2886,6 +3022,70 @@ namespace wifi_monitor
         if (buf)
         {
             free(buf);
+        }
+        return ESP_OK;
+    }
+
+    esp_err_t WifiMonitor::websocketCsvHandler(httpd_req_t *req)
+    {
+        if (!instance_)
+        {
+            DIGITOYS_LOGE("WifiMonitor", "WebSocket CSV handler called but no instance available");
+            return ESP_ERR_INVALID_STATE;
+        }
+
+        if (req->method == HTTP_GET)
+        {
+            // Distinguish plain HTTP GET vs WebSocket upgrade
+            if (!isWebSocketFrame(req)) {
+                const char *msg = "<!DOCTYPE html><html><body><h3>/ws/csv</h3><p>This is a WebSocket endpoint for live CSV streaming.</p><p>Please use ws://&lt;host&gt;/ws/csv from a WebSocket client.</p></body></html>";
+                httpd_resp_set_type(req, "text/html");
+                httpd_resp_send(req, msg, HTTPD_RESP_USE_STRLEN);
+                return ESP_OK;
+            }
+
+            DIGITOYS_LOGI("WifiMonitor", "WebSocket CSV handshake from client");
+            // Add client to CSV clients list and send header
+            int sockfd = httpd_req_to_sockfd(req);
+            if (xSemaphoreTake(instance_->ws_clients_mutex_, pdMS_TO_TICKS(1000)) == pdTRUE)
+            {
+                instance_->websocket_csv_clients_.push_back(sockfd);
+                DIGITOYS_LOGI("WifiMonitor", "Added CSV client: %d (total=%u)", sockfd, (unsigned)instance_->websocket_csv_clients_.size());
+                xSemaphoreGive(instance_->ws_clients_mutex_);
+            }
+
+            // Send CSV header immediately
+            const char *header = "seq,ts_us,rc_duty_raw,rc_throttle_pressed,rc_forward,rc_reverse,lidar_distance_m,lidar_filtered_m,obstacle_detected,warning_active,brake_distance_m,warning_distance_m,safety_margin_m,speed_approx_mps\n";
+            httpd_ws_frame_t ws_pkt = {};
+            ws_pkt.payload = (uint8_t *)header;
+            ws_pkt.len = strlen(header);
+            ws_pkt.type = HTTPD_WS_TYPE_TEXT;
+            (void)httpd_ws_send_frame_async(instance_->server_, sockfd, &ws_pkt);
+            return ESP_OK;
+        }
+
+        // Control frames: detect close to remove client
+        httpd_ws_frame_t ws_pkt;
+        memset(&ws_pkt, 0, sizeof(httpd_ws_frame_t));
+        esp_err_t ret = httpd_ws_recv_frame(req, &ws_pkt, 0);
+        if (ret != ESP_OK)
+        {
+            DIGITOYS_LOGE("WifiMonitor", "websocketCsvHandler recv len failed: %d", ret);
+            return ret;
+        }
+        if (ws_pkt.type == HTTPD_WS_TYPE_CLOSE)
+        {
+            if (xSemaphoreTake(instance_->ws_clients_mutex_, pdMS_TO_TICKS(1000)) == pdTRUE)
+            {
+                int sockfd = httpd_req_to_sockfd(req);
+                auto it = std::find(instance_->websocket_csv_clients_.begin(), instance_->websocket_csv_clients_.end(), sockfd);
+                if (it != instance_->websocket_csv_clients_.end())
+                {
+                    instance_->websocket_csv_clients_.erase(it);
+                    DIGITOYS_LOGI("WifiMonitor", "Removed CSV client: %d (total=%u)", sockfd, (unsigned)instance_->websocket_csv_clients_.size());
+                }
+                xSemaphoreGive(instance_->ws_clients_mutex_);
+            }
         }
         return ESP_OK;
     }
@@ -3024,81 +3224,39 @@ namespace wifi_monitor
 
     esp_err_t WifiMonitor::startLogging()
     {
-        if (data_logger_service_)
+        logging_active_ = true;
+        DIGITOYS_LOGI("WifiMonitor", "Started TelemetryFrame CSV streaming (WebSocket only)");
+        // Snapshot client counts for diagnostics
+        size_t ws_cnt = 0, data_cnt = 0;
+        if (ws_clients_mutex_ && xSemaphoreTake(ws_clients_mutex_, pdMS_TO_TICKS(10)) == pdTRUE)
         {
-            auto *data_logger = data_logger_service_->getDataLogger();
-            if (data_logger)
-            {
-                // Enable streaming mode for real-time data streaming to browser
-                esp_err_t ret = data_logger->setStreamingMode(true);
-                if (ret != ESP_OK)
-                {
-                    DIGITOYS_LOGE("WifiMonitor", "Failed to enable DataLogger streaming mode: %s", esp_err_to_name(ret));
-                    return ret;
-                }
-
-                // Switch from monitoring mode to full logging mode
-                ret = data_logger->setMonitoringMode(false);
-                if (ret == ESP_OK)
-                {
-                    DIGITOYS_LOGI("WifiMonitor", "DataLogger switched to full logging mode with streaming enabled");
-                }
-                else
-                {
-                    DIGITOYS_LOGE("WifiMonitor", "Failed to switch DataLogger to logging mode: %s", esp_err_to_name(ret));
-                }
-                return ret;
-            }
+            ws_cnt = websocket_clients_.size();
+            data_cnt = websocket_data_clients_.size();
+            xSemaphoreGive(ws_clients_mutex_);
         }
-
-        DIGITOYS_LOGE("WifiMonitor", "DataLogger service not available");
-        return ESP_ERR_INVALID_STATE;
+        DIGITOYS_LOGD("WifiMonitor", "Logging start: ws_clients=%u, data_clients=%u", (unsigned)ws_cnt, (unsigned)data_cnt);
+        return ESP_OK;
     }
 
     esp_err_t WifiMonitor::stopLogging()
     {
-        if (data_logger_service_)
-        {
-            auto *data_logger = data_logger_service_->getDataLogger();
-            if (data_logger)
-            {
-                // Disable streaming mode
-                esp_err_t ret = data_logger->setStreamingMode(false);
-                if (ret != ESP_OK)
-                {
-                    DIGITOYS_LOGW("WifiMonitor", "Failed to disable DataLogger streaming mode: %s", esp_err_to_name(ret));
-                }
-
-                // Switch from full logging mode back to monitoring mode
-                ret = data_logger->setMonitoringMode(true);
-                if (ret == ESP_OK)
-                {
-                    DIGITOYS_LOGI("WifiMonitor", "DataLogger switched back to monitoring mode with streaming disabled");
-                }
-                else
-                {
-                    DIGITOYS_LOGE("WifiMonitor", "Failed to switch DataLogger to monitoring mode: %s", esp_err_to_name(ret));
-                }
-                return ret;
-            }
-        }
-
-        DIGITOYS_LOGE("WifiMonitor", "DataLogger service not available");
-        return ESP_ERR_INVALID_STATE;
+        logging_active_ = false;
+        DIGITOYS_LOGI("WifiMonitor", "Stopped TelemetryFrame CSV streaming");
+        return ESP_OK;
     }
 
     bool WifiMonitor::isLoggingActive() const
     {
+        bool active = logging_active_;
         if (data_logger_service_)
         {
             auto *data_logger = data_logger_service_->getDataLogger();
             if (data_logger)
             {
-                // Logging is active when DataLogger is running AND not in monitoring mode
-                return data_logger->isRunning() && !data_logger->isMonitoringMode();
+                active = active || (data_logger->isRunning() && !data_logger->isMonitoringMode());
             }
         }
-        return false;
+        return active;
     }
 
     void WifiMonitor::clearDiagnosticData()
@@ -3527,6 +3685,7 @@ namespace wifi_monitor
 
             std::string action(content);
             esp_err_t result = ESP_OK;
+            DIGITOYS_LOGD("WifiMonitor", "loggingControl POST action='%s'", action.c_str());
 
             if (action.find("start") != std::string::npos)
             {
@@ -3556,15 +3715,18 @@ namespace wifi_monitor
                 return ESP_ERR_INVALID_ARG;
             }
 
+            httpd_resp_set_type(req, "application/json");
             if (result == ESP_OK)
             {
-                httpd_resp_set_type(req, "application/json");
                 const char *response = "{\"status\":\"success\"}";
                 httpd_resp_send(req, response, strlen(response));
+                DIGITOYS_LOGD("WifiMonitor", "loggingControl '%s' -> OK (logging_active=%d)", action.c_str(), (int)instance_->logging_active_);
             }
             else
             {
-                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Operation failed");
+                const char *response = "{\"status\":\"error\",\"message\":\"Operation failed\"}";
+                httpd_resp_send(req, response, strlen(response));
+                DIGITOYS_LOGW("WifiMonitor", "loggingControl '%s' -> ERROR", action.c_str());
             }
         }
         else
@@ -3573,7 +3735,8 @@ namespace wifi_monitor
             httpd_resp_set_type(req, "application/json");
 
             std::string response = "{";
-            response += "\"logging_active\":" + std::string(instance_->isLoggingActive() ? "true" : "false");
+            bool active = instance_->isLoggingActive();
+            response += "\"logging_active\":" + std::string(active ? "true" : "false");
 
             size_t entry_count = 0;
             size_t memory_usage_bytes = 0;
@@ -3599,6 +3762,7 @@ namespace wifi_monitor
             response += "}";
 
             httpd_resp_send(req, response.c_str(), response.length());
+            DIGITOYS_LOGD("WifiMonitor", "loggingControl GET -> active=%d, entries=%u", (int)active, (unsigned)entry_count);
         }
 
         return ESP_OK;
@@ -3752,6 +3916,21 @@ namespace wifi_monitor
 
         // Always call the original printf to maintain normal logging
         return vprintf(format, args);
+    }
+
+    // Helper to detect if request is a proper WebSocket handshake
+    bool WifiMonitor::isWebSocketFrame(httpd_req_t *req)
+    {
+        // Check for Upgrade: websocket header
+        char upgrade[16];
+        if (httpd_req_get_hdr_value_str(req, "Upgrade", upgrade, sizeof(upgrade)) == ESP_OK)
+        {
+            // Case-insensitive compare
+            for (char *p = upgrade; *p; ++p) *p = (char)tolower((unsigned char)*p);
+            if (strcmp(upgrade, "websocket") == 0)
+                return true;
+        }
+        return false;
     }
 
 } // namespace wifi_monitor

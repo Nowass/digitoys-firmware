@@ -1,54 +1,50 @@
+// Primary implementation file for WifiMonitor. Fixed corrupted content, added
+// missing includes and proper namespace scoping.
 #include "WifiMonitor.hpp"
 #include "SystemMonitor.hpp"
-#include "DataLoggerService.hpp" // Add DataLogger integration
+#include "DataLoggerService.hpp" // DataLogger integration
 #include "DataLogger.hpp"        // For direct DataLogger method access
-#include <esp_wifi.h>
-#include <esp_event.h>
-#include <esp_netif.h>
-#include <esp_log.h>
-#include <apps/dhcpserver/dhcpserver.h> // For dhcps_lease_t
-#include <nvs_flash.h>
-#include <esp_mac.h>
 #include <Logger.hpp>
+
 #include <algorithm>
-#include <string.h>
+#include <cctype>
+#include <cstring>
 #include <cmath>
-#include <ctime>
-#include <algorithm>
-#include <sys/socket.h>
-#include <errno.h>
+#include <math.h>
+
+#include <esp_wifi.h>
+#include <nvs_flash.h>
+#include <apps/dhcpserver/dhcpserver.h> // dhcps_lease_t
+#include <esp_timer.h>
 #include <esp_heap_caps.h>
-#include <freertos/task.h>
 #include <cJSON.h>
-#include <stdarg.h>
 
 namespace wifi_monitor
 {
-    // Static instance for HTTP handlers
+
+    // Define static instance pointer
     WifiMonitor *WifiMonitor::instance_ = nullptr;
 
     esp_err_t WifiMonitor::initialize()
     {
-        // Register with centralized logging system
-        DIGITOYS_REGISTER_COMPONENT("WifiMonitor", "WIFI_MON");
+        // Register component with centralized logger (tag: WIFI)
+        DIGITOYS_REGISTER_COMPONENT("WifiMonitor", "WIFI");
 
-        DIGITOYS_LOGI("WifiMonitor", "Initializing WiFi Monitor component");
-
-        // Initialize NVS (Required for WiFi)
-        esp_err_t ret = nvs_flash_init();
-        if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
+        // Initialize NVS (required by WiFi)
+        esp_err_t nvs_ret = nvs_flash_init();
+        if (nvs_ret == ESP_ERR_NVS_NO_FREE_PAGES || nvs_ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
         {
+            DIGITOYS_LOGW("WifiMonitor", "NVS init returned %s, erasing and retrying", esp_err_to_name(nvs_ret));
             ESP_ERROR_CHECK(nvs_flash_erase());
-            ret = nvs_flash_init();
+            nvs_ret = nvs_flash_init();
         }
-        if (ret != ESP_OK)
+        if (nvs_ret != ESP_OK)
         {
-            DIGITOYS_LOGE("WifiMonitor", "Failed to initialize NVS: %s", esp_err_to_name(ret));
-            return ret;
+            DIGITOYS_LOGE("WifiMonitor", "Failed to initialize NVS: %s", esp_err_to_name(nvs_ret));
+            return nvs_ret;
         }
-        DIGITOYS_LOGI("WifiMonitor", "NVS initialized successfully");
 
-        // Create mutexes for thread safety
+        // Create mutexes needed across the component
         telemetry_mutex_ = xSemaphoreCreateMutex();
         if (telemetry_mutex_ == nullptr)
         {
@@ -89,8 +85,8 @@ namespace wifi_monitor
             return ESP_ERR_NO_MEM;
         }
 
-        // Initialize telemetry data with timestamp
-        telemetry_data_.timestamp = esp_timer_get_time() / 1000; // Convert to milliseconds
+        // Initialize telemetry timestamp
+        telemetry_data_.timestamp = esp_timer_get_time() / 1000; // ms
 
         setState(digitoys::core::ComponentState::INITIALIZED);
         DIGITOYS_LOGI("WifiMonitor", "WiFi Monitor component initialized successfully");
@@ -2123,16 +2119,61 @@ namespace wifi_monitor
             }
         }
 
-        // --- CSV live logger via dedicated WS (/ws/csv) ---
-        let csvWS = null;
-        let csvRows = [];
-        let csvGotHeader = false;
-        const CSV_HEADER_STR = 'seq,ts_us,rc_duty_raw,rc_throttle_pressed,rc_forward,rc_reverse,lidar_distance_m,lidar_filtered_m,obstacle_detected,warning_active,brake_distance_m,warning_distance_m,safety_margin_m,speed_approx_mps';
+        function parseCsvRow(line) {
+            const parts = line.split(',');
+            if (parts.length !== 14) return null;
+            const [seq, ts_us, rc_duty_raw, rc_throttle_pressed, rc_forward, rc_reverse,
+                   lidar_distance_m, lidar_filtered_m, obstacle_detected, warning_active,
+                   brake_distance_m, warning_distance_m, safety_margin_m, speed_approx_mps] = parts;
+            const toNum = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
+            return {
+                seq: parseInt(seq, 10) || 0,
+                ts_us: parseInt(ts_us, 10) || 0,
+                rc_input: toNum(rc_duty_raw),
+                throttle: rc_throttle_pressed === '1',
+                fwd: rc_forward === '1',
+                rev: rc_reverse === '1',
+                distance: toNum(lidar_distance_m),
+                distance_f: toNum(lidar_filtered_m),
+                obstacle: obstacle_detected === '1',
+                warning: warning_active === '1',
+                brake_m: toNum(brake_distance_m),
+                warn_m: toNum(warning_distance_m),
+                safety_m: toNum(safety_margin_m),
+                speed_mps: toNum(speed_approx_mps)
+            };
+        }
+
+        function onCsvData(f) {
+            // Update physics display from CSV-derived values
+            const tele = {
+                rc_input: f.rc_input, // % duty
+                distance: f.distance, // m
+                speed_est: f.speed_mps * 3.6, // km/h
+                obstacle: f.obstacle,
+                warning: f.warning
+            };
+            updateTelemetryDisplay(tele);
+            if (document.getElementById('physicsCharts').style.display === 'block') {
+                updatePhysicsDisplay(tele);
+            }
+        }
+
+    // --- CSV live logger via dedicated WS (/ws/csv) ---
+    let csvWS = null;
+    let csvRows = [];
+    let csvGotHeader = false;
+    let csvBytes = 0; // running size estimate for UI
+    const CSV_HEADER_STR = 'seq,ts_us,rc_duty_raw,rc_throttle_pressed,rc_forward,rc_reverse,lidar_distance_m,lidar_filtered_m,obstacle_detected,warning_active,brake_distance_m,warning_distance_m,safety_margin_m,speed_approx_mps';
 
         function startCsvStream() {
             if (csvWS) { try { csvWS.close(); } catch(e){} csvWS = null; }
             csvRows = [];
             csvGotHeader = false;
+            csvBytes = 0;
+            streamingActive = true;
+            streamingStartTime = Date.now();
+            streamingRowCount = 0;
             const wsUrl = `ws://${window.location.host}/ws/csv`;
             console.log('CSV logger connecting:', wsUrl);
             csvWS = new WebSocket(wsUrl);
@@ -2143,8 +2184,14 @@ namespace wifi_monitor
                 text.split('\n').forEach(line => {
                     const s = line.trim();
                     if (!s) return;
-                    if (!csvGotHeader && s.startsWith('seq,')) { csvRows.push(s); csvGotHeader = true; return; }
-                    if (s.split(',').length === 14) { csvRows.push(s); }
+                    if (!csvGotHeader && s.startsWith('seq,')) { csvRows.push(s); csvGotHeader = true; csvBytes += s.length + 1; return; }
+                    if (s.split(',').length === 14) {
+                        csvRows.push(s);
+                        csvBytes += s.length + 1; // + newline
+                        streamingRowCount++;
+                        const f = parseCsvRow(s);
+                        if (f) onCsvData(f);
+                    }
                 });
             };
             csvWS.onerror = (e) => console.warn('CSV logger error', e);
@@ -2153,6 +2200,7 @@ namespace wifi_monitor
 
         function stopCsvStreamAndDownload() {
             if (csvWS) { try { csvWS.close(); } catch(e){} csvWS = null; }
+            streamingActive = false;
             // Ensure header exists for download
             const hasHeader = csvRows.length > 0 && csvRows[0].startsWith('seq,');
             const rows = hasHeader ? csvRows : [CSV_HEADER_STR, ...csvRows];
@@ -2166,6 +2214,25 @@ namespace wifi_monitor
             a.click();
             setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
             console.log('CSV file downloaded, rows:', rows.length);
+        }
+
+        function downloadLastCsv() {
+            if (!csvRows || csvRows.length === 0) {
+                alert('No CSV data available yet. Start logging first.');
+                return;
+            }
+            // Download without changing connection state
+            const hasHeader = csvRows[0].startsWith('seq,');
+            const rows = hasHeader ? csvRows : [CSV_HEADER_STR, ...csvRows];
+            const csvContent = rows.join('\n');
+            const blob = new Blob([csvContent], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'digitoys-telemetry-' + new Date().toISOString().replace(/[:.]/g, '-') + '.csv';
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
         }
         
         // Logging functionality - Phase 2
@@ -2251,8 +2318,6 @@ namespace wifi_monitor
                     document.getElementById('chartsStatus').textContent = '(Live Updates)';
                     document.getElementById('chartsStatus').style.color = '#2ea043';
                     
-                    // Start file streaming (legacy diagnostic flow)
-                    startFileStreaming();
                     // Start dedicated CSV streaming for unified TelemetryFrame
                     startCsvStream();
                     
@@ -2308,8 +2373,6 @@ namespace wifi_monitor
                     document.getElementById('chartsStatus').textContent = '(Showing Last Logged Data)';
                     document.getElementById('chartsStatus').style.color = '#d29922';
                     
-                    // Stop file streaming (legacy diagnostic flow)
-                    stopFileStreaming();
                     // Stop CSV stream and download collected data
                     stopCsvStreamAndDownload();
                     
@@ -2375,6 +2438,10 @@ namespace wifi_monitor
                     
                     // Reset brake events counter
                     document.getElementById('brakeEvents').textContent = '0';
+                    // Reset client-side CSV buffers/stats
+                    csvRows = [];
+                    csvBytes = 0;
+                    streamingRowCount = 0;
                     
                     console.log('Data cleared successfully');
                     alert('All logged data has been cleared successfully.');
@@ -2393,40 +2460,32 @@ namespace wifi_monitor
         
         function refreshLogData() {
             if (!loggingActive) return;
-            
-            // Use local streaming statistics when file streaming is active
-            if (streamingActive && streamingStartTime) {
-                const now = Date.now();
-                const elapsedSeconds = (now - streamingStartTime) / 1000;
-                const totalRows = streamingRowCount; // 1 row per entry
-                
+
+            // Preferred: use CSV stream stats
+            if (csvWS && csvWS.readyState === WebSocket.OPEN) {
+                const totalRows = streamingRowCount; // counted from CSV rows
                 updateLogEntries(totalRows);
-                updateLogSize(Math.floor(totalRows * 0.05)); // Estimate size in KB based on rows
+                updateLogSize(Math.max(1, Math.floor(csvBytes / 1024))); // actual bytes seen
                 updateLastEntry();
-                // Remove data rate display - not meaningful for users
-                document.getElementById('memoryUsage').textContent = Math.min((totalRows / 1000) * 100, 100).toFixed(1) + '%';
-                
-                lastUpdateTime = now;
+                document.getElementById('memoryUsage').textContent = Math.min((totalRows / 2000) * 100, 100).toFixed(1) + '%';
+                lastUpdateTime = Date.now();
                 return;
             }
-            
-            // Fallback to server-side logging status (for diagnostic logging)
+
+            // If CSV WS closed but we still have rows buffered, reflect them
+            if (csvRows && csvRows.length > 1) {
+                const totalRows = streamingRowCount;
+                updateLogEntries(totalRows);
+                updateLogSize(Math.max(1, Math.floor(csvBytes / 1024)));
+                document.getElementById('memoryUsage').textContent = Math.min((totalRows / 2000) * 100, 100).toFixed(1) + '%';
+                return;
+            }
+
+            // Fallback: server-side status (still used for buttons/diagnostics but not for CSV counts)
             fetch('/logging/control')
             .then(response => response.json())
-            .then(data => {
-                if (data.logging_active) {
-                    updateLogEntries(data.entry_count);
-                    updateLogSize(Math.floor(data.entry_count * 0.1)); // Estimate size in KB
-                    updateLastEntry();
-                    // Remove data rate display - not meaningful for users
-                    document.getElementById('memoryUsage').textContent = Math.min(data.entry_count / 10, 100).toFixed(1) + '%';
-                    
-                    lastEntryCount = data.entry_count;
-                    lastUpdateTime = Date.now();
-                    
-                    // Physics data is updated via WebSocket telemetry feed
-                    // No need to fetch separately during logging
-                }
+            .then(() => {
+                // No-op; UI already driven by CSV
             })
             .catch(error => console.error('Failed to refresh log data:', error));
         }

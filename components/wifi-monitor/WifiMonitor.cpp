@@ -1286,10 +1286,10 @@ namespace wifi_monitor
             </div>
             <div class="detail-item">
                 <span class="label">Speed:</span>
-                <span id="telemetrySpeed">-- km/h</span>
+                <span id="telemetrySpeed">-- m/s</span>
             </div>
             <div class="detail-item">
-                <span class="label">Safety Margin:</span>
+                <span class="label">LiDAR Distance:</span>
                 <span id="telemetrySafety">-- m</span>
             </div>
         </div>
@@ -1324,15 +1324,13 @@ namespace wifi_monitor
         <div class="log-controls">
             <button class="btn" id="startBtn">Start Logging</button>
             <button class="btn btn-danger" id="stopBtn">Stop Logging</button>
-            <button class="btn btn-warning" id="exportBtn">Export Server Data</button>
             <button class="btn btn-secondary" id="clearBtn">Clear Data</button>
         </div>
         <div class="log-info">
             <div>Last entry: <span id="lastEntry">Never</span></div>
             <div>Session: <span id="sessionTime">00:00:00</span></div>
-            <div>Memory usage: <span id="memoryUsage">0%</span></div>
             <div style="margin-top: 0.5rem; font-size: 0.8rem; color: #888;">
-                💡 Live streaming data auto-saves when logging stops. Export Server Data for additional diagnostics.
+                💡 Live streaming data auto-saves when logging stops. Use the download prompt shown when you stop logging.
             </div>
         </div>
     </div>
@@ -1448,8 +1446,15 @@ namespace wifi_monitor
             }
             
             // Update detail values
-            rcInput.textContent = telemetryData.rc_input ? `${telemetryData.rc_input.toFixed(1)}%` : '--';
-            speed.textContent = `${telemetryData.speed_est.toFixed(1)} km/h`;
+            if (typeof telemetryData.rc_input === 'number') {
+                rcInput.textContent = `${telemetryData.rc_input.toFixed(1)}%`;
+            } else {
+                rcInput.textContent = '--';
+            }
+            // Speed shown in m/s (per request that it matches speed_approx_mps)
+            let speed_mps = (typeof telemetryData.speed_mps === 'number') ? telemetryData.speed_mps : ((telemetryData.speed_est || 0) / 3.6);
+            speed.textContent = `${speed_mps.toFixed(2)} m/s`;
+            // Show LiDAR distance directly in meters
             safety.textContent = `${telemetryData.distance.toFixed(2)} m`;
             
             // Determine visual state based on obstacle and warning
@@ -1571,9 +1576,11 @@ namespace wifi_monitor
                     // Update telemetry display
                     updateTelemetryDisplay(data.telemetry);
                     
-                    // Update physics charts with real telemetry data
+                    // Update physics charts only if CSV stream isn't active to avoid mixed-source spikes
                     if (document.getElementById('physicsCharts').style.display === 'block') {
-                        updatePhysicsDisplay(data.telemetry);
+                        if (!(csvWS && csvWS.readyState === WebSocket.OPEN)) {
+                            updatePhysicsDisplay(data.telemetry);
+                        }
                     }
                     
                     // Update console with system logs
@@ -1678,9 +1685,11 @@ namespace wifi_monitor
                 // Update telemetry display
                 updateTelemetryDisplay(data.telemetry);
                 
-                // Update physics charts with real telemetry data
+                // Update physics charts only if CSV stream isn't active
                 if (document.getElementById('physicsCharts').style.display === 'block') {
-                    updatePhysicsDisplay(data.telemetry);
+                    if (!(csvWS && csvWS.readyState === WebSocket.OPEN)) {
+                        updatePhysicsDisplay(data.telemetry);
+                    }
                 }
                 
                 // Update console with system logs
@@ -2147,9 +2156,10 @@ namespace wifi_monitor
         function onCsvData(f) {
             // Update physics display from CSV-derived values
             const tele = {
-                rc_input: f.rc_input, // % duty
+                rc_input: (f.rc_input || 0) * 100.0, // convert duty fraction to %
                 distance: f.distance, // m
-                speed_est: f.speed_mps * 3.6, // km/h
+                speed_mps: f.speed_mps || 0, // m/s
+                safety_cm: Math.max(0, (f.safety_m || 0) * 100.0),
                 obstacle: f.obstacle,
                 warning: f.warning
             };
@@ -2427,11 +2437,14 @@ namespace wifi_monitor
                     updateLogEntries(0);
                     updateLogSize(0);
                     document.getElementById('lastEntry').textContent = 'Never';
-                    document.getElementById('memoryUsage').textContent = '0%';
-                    
-                    // Hide physics charts when data is cleared
+
+                    // Hide physics charts and clear datasets when data is cleared
                     document.getElementById('physicsCharts').style.display = 'none';
-                    
+                    speedData = [];
+                    distanceData = [];
+                    rcInputData = [];
+                    safetyData = [];
+
                     // Unlock charts for next logging session
                     chartsLocked = false;
                     document.getElementById('chartsStatus').textContent = '';
@@ -2467,7 +2480,6 @@ namespace wifi_monitor
                 updateLogEntries(totalRows);
                 updateLogSize(Math.max(1, Math.floor(csvBytes / 1024))); // actual bytes seen
                 updateLastEntry();
-                document.getElementById('memoryUsage').textContent = Math.min((totalRows / 2000) * 100, 100).toFixed(1) + '%';
                 lastUpdateTime = Date.now();
                 return;
             }
@@ -2477,7 +2489,6 @@ namespace wifi_monitor
                 const totalRows = streamingRowCount;
                 updateLogEntries(totalRows);
                 updateLogSize(Math.max(1, Math.floor(csvBytes / 1024)));
-                document.getElementById('memoryUsage').textContent = Math.min((totalRows / 2000) * 100, 100).toFixed(1) + '%';
                 return;
             }
 
@@ -2521,7 +2532,7 @@ namespace wifi_monitor
             safetyData = [];
         }
         
-        function updatePhysicsDisplay(telemetryData) {
+    function updatePhysicsDisplay(telemetryData) {
             // Skip updates if charts are locked (after logging stops)
             if (chartsLocked) {
                 return; // Charts frozen on last logged data
@@ -2533,10 +2544,16 @@ namespace wifi_monitor
             }
             
             // Extract real vehicle physics data from telemetry
-            var rcInput = telemetryData.rc_input || 0; // RC input percentage
+            var rcInput = telemetryData.rc_input || 0; // RC input percentage (already %)
             var distance = (telemetryData.distance || 0) * 100; // Convert m to cm for chart
-            var speed = telemetryData.speed_est || 0; // Speed in km/h
-            var safetyMargin = Math.max(0, distance - 100); // Safety calculation in cm
+            // Prefer speed in m/s; fall back to km/h if provided by WS fallback
+            var speed_mps = (typeof telemetryData.speed_mps === 'number') ? telemetryData.speed_mps : ((telemetryData.speed_est || 0) / 3.6);
+            var speed = speed_mps * 3.6; // chart still uses km/h for readability
+            // Safety margin derived from LiDAR distance: use safety_m if provided in CSV-mapped telemetryData
+            // else approximate as distance - brake threshold (100cm)
+            var safetyMargin = (typeof telemetryData.safety_cm === 'number')
+                ? telemetryData.safety_cm
+                : Math.max(0, distance - 100);
             
             // Update data arrays
             speedData.push(speed);
@@ -2551,18 +2568,24 @@ namespace wifi_monitor
             if (safetyData.length > maxDataPoints) safetyData.shift();
             
             // Update charts with dual-axis system
+            // Determine dynamic Y max for distance up to 500 cm
+            var distMax = 0;
+            for (let i = 0; i < distanceData.length; i++) distMax = Math.max(distMax, distanceData[i]);
+            var rightMax = Math.max(300, Math.min(500, Math.ceil((distMax + 20) / 10) * 10));
+
             drawDualAxisChart(speedChart.ctx, 
                 { data: speedData, color: '#2ea043', label: 'Speed' },
                 { data: distanceData, color: '#d29922', label: 'Distance' },
                 { min: 0, max: 50, unit: 'km/h', decimals: 0 },
-                { min: 0, max: 300, unit: 'cm', decimals: 0 }
+                { min: 0, max: rightMax, unit: 'cm', decimals: 0 }
             );
             
+            // Use same dynamic right axis for safety chart
             drawDualAxisChart(safetyChart.ctx, 
                 { data: rcInputData, color: '#2ea043', label: 'RC Input' },
                 { data: safetyData, color: '#f85149', label: 'Safety Margin' },
                 { min: 0, max: 15, unit: '%', decimals: 1 },
-                { min: 0, max: 300, unit: 'cm', decimals: 0 }
+                { min: 0, max: rightMax, unit: 'cm', decimals: 0 }
             );
             
             // Update summary values
@@ -2704,68 +2727,18 @@ namespace wifi_monitor
             // No axis labels needed - all info is in the legend
         }
         
-        function exportData() {
-            console.log('Exporting log data...');
-            
-            // Get current entry count first
-            fetch('/logging/control')
-            .then(response => response.json())
-            .then(statusData => {
-                if (statusData.entry_count === 0) {
-                    alert('No data to export. Start logging first.');
-                    return;
-                }
-                
-                // Fetch the actual log data as CSV
-                return fetch('/logging/data');
-            })
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error('Failed to fetch data: ' + response.statusText);
-                }
-                return response.text(); // Get as text since it's CSV now
-            })
-            .then(csvData => {
-                if (!csvData || csvData.length === 0) {
-                    alert('No data available to export');
-                    return;
-                }
-                
-                // Check if the response is an error message
-                if (csvData.startsWith('error')) {
-                    alert('Export failed: ' + csvData.substring(6)); // Remove 'error\n' prefix
-                    return;
-                }
-                
-                // Create and download CSV file
-                const blob = new Blob([csvData], { type: 'text/csv' });
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = 'digitoys_physics_data_' + new Date().toISOString().replace(/[:.]/g, '-') + '.csv';
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                window.URL.revokeObjectURL(url);
-                
-                console.log('CSV file downloaded successfully');
-            })
-            .catch(error => {
-                console.error('Failed to export data:', error);
-                alert('Failed to export data: ' + error.message);
-            });
-        }
+        // exportData removed: client-side CSV logging is authoritative
         
         // Initialize logging UI
         function initLogging() {
             var startBtn = document.getElementById('startBtn');
             var stopBtn = document.getElementById('stopBtn');
-            var exportBtn = document.getElementById('exportBtn');
+            // export button removed
             var clearBtn = document.getElementById('clearBtn');
             
             if (startBtn) startBtn.addEventListener('click', startLogging);
             if (stopBtn) stopBtn.addEventListener('click', stopLogging);
-            if (exportBtn) exportBtn.addEventListener('click', exportData);
+            // no export button listener
             if (clearBtn) clearBtn.addEventListener('click', clearData);
             
             // Initial button states
@@ -2820,11 +2793,7 @@ namespace wifi_monitor
                     updateLogSize(data.data_size_kb);
                 }
                 
-                // Update memory usage
-                if (data.memory_usage_percent !== undefined) {
-                    document.getElementById('memoryUsage').textContent = 
-                        Math.round(data.memory_usage_percent * 10) / 10 + '%';
-                }
+                // Memory usage removed (no device-side storage)
                 
                 // Update last entry (if we have data)
                 if (data.entry_count > 0) {
@@ -2952,11 +2921,16 @@ namespace wifi_monitor
                 cJSON_AddBoolToObject(telemetry, "obstacle", instance_->telemetry_data_.obstacle);
                 cJSON_AddNumberToObject(telemetry, "distance", instance_->telemetry_data_.distance);
                 cJSON_AddNumberToObject(telemetry, "speed_est", instance_->telemetry_data_.speed_est);
+                // Provide speed_mps for unit consistency (speed_est is km/h in legacy fallback)
+                cJSON_AddNumberToObject(telemetry, "speed_mps", instance_->telemetry_data_.speed_est / 3.6);
                 cJSON_AddBoolToObject(telemetry, "warning", instance_->telemetry_data_.warning);
                 cJSON_AddNumberToObject(telemetry, "timestamp", instance_->telemetry_data_.timestamp);
 
-                // Add RC input for dashboard display (duty cycle as percentage)
-                cJSON_AddNumberToObject(telemetry, "rc_input", instance_->telemetry_data_.speed_est * 100.0f);
+                // Add RC input for dashboard display (percentage of raw duty)
+                // Use last_frame_ if available; raw duty e.g. 0.0856 -> 8.56%
+                float rc_pct = 0.0f;
+                rc_pct = instance_->last_frame_.rc_duty_raw * 100.0f;
+                cJSON_AddNumberToObject(telemetry, "rc_input", rc_pct);
 
                 cJSON_AddItemToObject(root, "telemetry", telemetry);
                 xSemaphoreGive(instance_->telemetry_mutex_);
@@ -3860,24 +3834,16 @@ namespace wifi_monitor
 
             size_t entry_count = 0;
             size_t memory_usage_bytes = 0;
-            float memory_usage_percent = 0.0f;
 
             if (instance_->data_logger_service_)
             {
                 auto *data_logger = instance_->data_logger_service_->getDataLogger();
                 entry_count = data_logger->getEntryCount(); // Logged data count
                 memory_usage_bytes = data_logger->getMemoryUsage();
-
-                // Calculate memory usage percentage
-                if (data_logger->getMaxMemoryKB() > 0)
-                {
-                    memory_usage_percent = (float)memory_usage_bytes / (data_logger->getMaxMemoryKB() * 1024.0f) * 100.0f;
-                }
             }
 
             response += ",\"entry_count\":" + std::to_string(entry_count);
-            response += ",\"memory_usage_bytes\":" + std::to_string(memory_usage_bytes);
-            response += ",\"memory_usage_percent\":" + std::to_string(memory_usage_percent);
+            // memory usage fields removed from UI; keep data_size_kb for UI display
             response += ",\"data_size_kb\":" + std::to_string(memory_usage_bytes / 1024);
             response += "}";
 

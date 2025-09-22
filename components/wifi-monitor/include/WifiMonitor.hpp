@@ -252,6 +252,10 @@ namespace wifi_monitor
         static esp_err_t websocketDataHandler(httpd_req_t *req);
         static esp_err_t websocketCsvHandler(httpd_req_t *req);
         static esp_err_t loggingControlHandler(httpd_req_t *req);
+    // Braking measurement endpoints (semi-auto + manual)
+    static esp_err_t brakingStartHandler(httpd_req_t *req);  // POST /braking/start (manual override)
+    static esp_err_t brakingStopHandler(httpd_req_t *req);   // POST /braking/stop  (manual finalize)
+    static esp_err_t brakingStatusHandler(httpd_req_t *req); // GET  /braking/status
         // Legacy DataLogger logging data handler removed
 
         // Helper methods
@@ -311,6 +315,38 @@ namespace wifi_monitor
 
         // Log capture hook
         static int logHook(const char *format, va_list args);
+
+        // --- Braking measurement state ---
+        // Semi-automatic start based on threshold crossing; manual override supported via HTTP.
+        // Optional auto-stop based on near-zero speed dwell; manual stop supported via HTTP.
+        bool brake_event_active_ = false;
+        uint32_t brake_event_id_seq_ = 0;    // monotonically increasing id
+        uint32_t current_brake_event_id_ = 0; // id of active event
+        uint64_t brake_start_ts_us_ = 0;
+    float    brake_start_dist_m_ = 0.0f;   // using filtered distance at start
+    float    brake_min_dist_m_ = 0.0f;     // running minimum filtered distance during event
+
+        // Auto-stop detection
+        bool auto_stop_enabled_ = true;
+        uint32_t zero_speed_consec_frames_ = 0;
+        static constexpr float STOP_SPEED_EPS_MPS = 0.03f; // ~3 cm/s
+        static constexpr uint32_t STOP_DWELL_FRAMES = 8;   // ~0.4s @ ~20Hz
+
+        // Last finalized result (for status/UI)
+        uint32_t last_brake_event_id_ = 0;
+        uint64_t brake_stop_ts_us_ = 0;
+    float    brake_stop_dist_m_ = 0.0f;    // filtered min distance at stop
+        float    last_brake_distance_m_ = 0.0f; // start_dist - stop_dist
+        enum class BrakeMethod { NONE = 0, MANUAL = 1, AUTO = 2 };
+        BrakeMethod last_brake_method_ = BrakeMethod::NONE;
+
+        // Emit one flagged CSV row on next frame after finalize
+        bool emit_brake_result_next_row_ = false;
+
+        // Helpers
+        void maybeAutoStartBraking(const TelemetryFrame &f, const TelemetryFrame *prev);
+        void maybeAutoStopBraking(const TelemetryFrame &f);
+        void finalizeBraking(BrakeMethod method);
     };
 
 } // namespace wifi_monitor

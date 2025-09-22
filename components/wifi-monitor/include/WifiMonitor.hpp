@@ -12,16 +12,7 @@
 #include <vector>
 #include <string>
 
-// Forward declare to avoid circular dependency
-namespace digitoys::datalogger
-{
-    class DataLoggerService;
-}
-
-namespace digitoys::datamodeling
-{
-    class DataModeling;
-}
+// No external logger/modeling dependencies anymore
 
 namespace wifi_monitor
 {
@@ -101,29 +92,10 @@ namespace wifi_monitor
         /**
          * @brief Constructor
          */
-        /**
-         * @brief Construct the WiFi Monitor component
-         * @param data_logger_service Optional DataLogger service for logging control
-         */
-        WifiMonitor(digitoys::datalogger::DataLoggerService *data_logger_service = nullptr)
-            : ComponentBase("WifiMonitor"), data_logger_service_(data_logger_service) {}
+        // Default constructor
+        WifiMonitor() : ComponentBase("WifiMonitor") {}
 
-        /**
-         * @brief Set the DataLogger service for logging control (can be called after construction)
-         */
-        void setDataLoggerService(digitoys::datalogger::DataLoggerService *data_logger_service)
-        {
-            data_logger_service_ = data_logger_service;
-            setupDataLoggerStreaming();
-        }
-
-        /**
-         * @brief Set the DataModeling service for session control (can be called after construction)
-         */
-        void setDataModelingService(digitoys::datamodeling::DataModeling *data_modeling_service)
-        {
-            data_modeling_service_ = data_modeling_service;
-        }
+        // No-op setters removed (logger/modeling detached)
 
         /**
          * @brief Destructor
@@ -227,24 +199,7 @@ namespace wifi_monitor
          */
         std::string getDiagnosticDataCSV() const;
 
-        /**
-         * @brief Get DataLogger physics data as JSON
-         * @return JSON string with physics data entries
-         */
-        std::string getDataLoggerJSON() const;
-
-        /**
-         * @brief Get DataLogger physics data as CSV
-         * @return CSV string with physics data entries
-         */
-        std::string getDataLoggerCSV() const;
-
-        /**
-         * @brief Get aggregated physics data as a wide CSV at a fixed rate
-         * @param rate_hz Sampling rate in Hz (default 5)
-         * @return CSV string with wide rows and normalized units
-         */
-        std::string getDataLoggerWideCSV(uint32_t rate_hz = 5) const;
+        // DataLogger export methods removed
 
         /**
          * @brief Add system log entry for console display
@@ -287,9 +242,7 @@ namespace wifi_monitor
         static void webSocketTaskFunction(void *param);
         void webSocketBroadcastLoop();
         esp_err_t broadcastTelemetry();
-        esp_err_t broadcastDataEntry(const std::string &data_json);
         void cleanupDisconnectedClients();
-        void setupDataLoggerStreaming();
 
         // HTTP request handlers
         static esp_err_t telemetryGetHandler(httpd_req_t *req);
@@ -299,7 +252,7 @@ namespace wifi_monitor
         static esp_err_t websocketDataHandler(httpd_req_t *req);
         static esp_err_t websocketCsvHandler(httpd_req_t *req);
         static esp_err_t loggingControlHandler(httpd_req_t *req);
-        static esp_err_t loggingDataHandler(httpd_req_t *req);
+        // Legacy DataLogger logging data handler removed
 
         // Helper methods
         static esp_err_t addCorsHeaders(httpd_req_t *req);
@@ -313,9 +266,7 @@ namespace wifi_monitor
         bool prev_frame_valid_ = false; ///< Indicates previous frame valid
         uint32_t frame_seq_ = 0;        ///< Sequence counter
 
-        // Service integrations
-        digitoys::datalogger::DataLoggerService *data_logger_service_ = nullptr;
-        digitoys::datamodeling::DataModeling *data_modeling_service_ = nullptr;
+        // Service integrations removed
 
         // Network interfaces
         esp_netif_t *ap_netif_ = nullptr;
@@ -328,6 +279,10 @@ namespace wifi_monitor
         std::vector<int> websocket_data_clients_; // Separate list for data streaming clients
         std::vector<int> websocket_csv_clients_;  // Dedicated CSV clients (header + rows)
         SemaphoreHandle_t ws_clients_mutex_ = nullptr;
+
+        // Simple counters for CSV streaming status
+        uint32_t csv_rows_sent_ = 0; ///< Number of CSV rows sent this session
+        size_t csv_bytes_sent_ = 0;  ///< Approx bytes sent (optional UI)
 
         // Telemetry data protection
         Telemetry telemetry_data_{};

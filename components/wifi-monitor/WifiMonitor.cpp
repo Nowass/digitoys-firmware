@@ -2,8 +2,6 @@
 // missing includes and proper namespace scoping.
 #include "WifiMonitor.hpp"
 #include "SystemMonitor.hpp"
-#include "DataLoggerService.hpp" // DataLogger integration
-#include "DataLogger.hpp"        // For direct DataLogger method access
 #include <Logger.hpp>
 
 #include <algorithm>
@@ -347,6 +345,7 @@ namespace wifi_monitor
                 {
                     if (xSemaphoreTake(ws_clients_mutex_, pdMS_TO_TICKS(5)) == pdTRUE)
                     {
+                        bool any_sent = false;
                         // Send to CSV clients first (unconditional)
                         for (auto it = websocket_csv_clients_.begin(); it != websocket_csv_clients_.end();)
                         {
@@ -362,6 +361,7 @@ namespace wifi_monitor
                             }
                             else
                             {
+                                any_sent = true;
                                 ++it;
                             }
                         }
@@ -382,9 +382,15 @@ namespace wifi_monitor
                                 }
                                 else
                                 {
+                                    any_sent = true;
                                     ++it;
                                 }
                             }
+                        }
+                        if (any_sent)
+                        {
+                            csv_rows_sent_ += 1;
+                            csv_bytes_sent_ += (size_t)len;
                         }
                         xSemaphoreGive(ws_clients_mutex_);
                     }
@@ -661,54 +667,38 @@ namespace wifi_monitor
         httpd_register_uri_handler(server_, &ws_data_uri);
         httpd_register_uri_handler(server_, &ws_csv_uri);
 
-        // Logging control endpoint (start/stop/clear logging)
-        httpd_uri_t logging_control_uri = {
+        // Logging control endpoint (GET status, POST actions)
+        httpd_uri_t logging_ctrl_get = {
+            .uri = "/logging/control",
+            .method = HTTP_GET,
+            .handler = loggingControlHandler,
+            .user_ctx = nullptr};
+        httpd_uri_t logging_ctrl_post = {
             .uri = "/logging/control",
             .method = HTTP_POST,
             .handler = loggingControlHandler,
             .user_ctx = nullptr};
-        httpd_register_uri_handler(server_, &logging_control_uri);
+        httpd_register_uri_handler(server_, &logging_ctrl_get);
+        httpd_register_uri_handler(server_, &logging_ctrl_post);
 
-        // Logging control status endpoint (GET)
-        httpd_uri_t logging_status_uri = {
-            .uri = "/logging/control",
-            .method = HTTP_GET,
-            .handler = loggingControlHandler,
-            .user_ctx = nullptr};
-        httpd_register_uri_handler(server_, &logging_status_uri);
-
-        // Logging data endpoint (get logged data)
-        httpd_uri_t logging_data_uri = {
-            .uri = "/logging/data",
-            .method = HTTP_GET,
-            .handler = loggingDataHandler,
-            .user_ctx = nullptr};
-        httpd_register_uri_handler(server_, &logging_data_uri);
-
-        // Unified telemetry minimal dashboard
-        httpd_uri_t unified_uri = {
-            .uri = "/unified",
-            .method = HTTP_GET,
-            .handler = [](httpd_req_t *req) -> esp_err_t
-            {
-                const char *html =
-                    "<!DOCTYPE html><html><head><meta charset='utf-8'/><title>Unified Telemetry</title>"
-                    "<style>body{font-family:Arial;margin:12px;background:#111;color:#eee}table{border-collapse:collapse}td,th{border:1px solid #444;padding:4px 8px}#status{margin:8px 0} .ok{color:#4caf50}.warn{color:#ff9800}.bad{color:#f44336}</style>"
-                    "</head><body><h2>Unified Telemetry Frame</h2><div id='status'>Connecting...</div>"
-                    "<table id='t'><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody></tbody></table>"
-                    "<script>const tbody=document.querySelector('#t tbody');const status=document.getElementById('status');"
-                    "const fields=['seq','ts_us','rc_duty_raw','rc_throttle_pressed','rc_forward','rc_reverse','lidar_distance_m','lidar_filtered_m','obstacle_detected','warning_active','brake_distance_m','warning_distance_m','safety_margin_m','speed_approx_mps'];"
-                    "function ensureRows(){if(tbody.children.length===0){for(const f of fields){const tr=document.createElement('tr');tr.innerHTML='<td>'+f+'</td><td id=val_'+f+'></td>';tbody.appendChild(tr);}}}ensureRows();"
-                    "function fmt(v){if(typeof v==='number'){if(Math.abs(v)>1000)return v.toFixed(0);if(Math.abs(v)>10)return v.toFixed(3);return v.toFixed(4);}return v;}"
-                    "function update(d){for(const f of fields){const el=document.getElementById('val_'+f);if(el&&f in d)el.textContent=fmt(d[f]);}status.textContent='Live (seq '+d.seq+')';status.className='ok';}"
-                    "function connect(){const proto=location.protocol==='https:'?'wss':'ws';const ws=new WebSocket(proto+'://'+location.host+'/ws/data');ws.onopen=()=>{status.textContent='Connected';status.className='ok';};ws.onmessage=e=>{try{update(JSON.parse(e.data));}catch(err){console.error(err);} };ws.onclose=()=>{status.textContent='Reconnecting...';status.className='warn';setTimeout(connect,1000);};ws.onerror=()=>ws.close();}connect();"
-                    "</script></body></html>";
-                httpd_resp_set_type(req, "text/html");
-                httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-                httpd_resp_send(req, html, HTTPD_RESP_USE_STRLEN);
-                return ESP_OK; },
-            .user_ctx = nullptr};
-        httpd_register_uri_handler(server_, &unified_uri);
+        // Unified telemetry minimal dashboard removed
+        // httpd_uri_t unified_uri = {
+        //     .uri = "/unified",
+        //     .method = HTTP_GET,
+        //     .handler = [](httpd_req_t *req) -> esp_err_t
+        //     {
+        //         const char *html =
+        //             "<!DOCTYPE html><html><head><meta charset='utf-8'/><title>Unified Telemetry</title>"
+        //             "<style>body{font-family:Arial;margin:12px;background:#111;color:#eee}table{border-collapse:collapse}td,th{border:1px solid #444;padding:4px 8px}#status{margin:8px 0} .ok{color:#4caf50}.warn{color:#ff9800}.bad{color:#f44336}</style>"
+        //             "</head><body><h2>Unified Telemetry Frame</h2><div id='status'>Connecting...</div>"
+        //             "<table id='t'><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody></tbody></table>"
+        //             "<script>const tbody=document.querySelector('#t tbody');const status=document.getElementById('status');"
+        //             "const fields=['seq','ts_us','rc_duty_raw','rc_throttle_pressed','rc_forward','rc_reverse','lidar_distance_m','lidar_filtered_m','obstacle_detected','warning_active','brake_distance_m','warning_distance_m','safety_margin_m','speed_approx_mps'];"
+        //             "function ensureRows(){if(tbody.children.length===0){for(const f of fields){const tr=document.createElement('tr');tr.innerHTML='<td>'+f+'</td><td id=val_'+f+'></td>';tbody.appendChild(tr);}}}ensureRows();"
+        //             "function fmt(v){if(typeof v==='number'){if(Math.abs(v)>1000)return v.toFixed(0);if(Math.abs(v)>10)return v.toFixed(3);return v.toFixed(4);}return v;}"
+        //             "function update(d){for(const f of fields){const el=document.getElementById('val_'+f);if(el&&f in d)el.textContent=fmt(d[f]);}status.textContent='Live (seq '+d.seq+')';status.className='ok';}"
+        //             "function connect(){const proto=location.protocol==='https:'?'wss':'ws';const ws=new WebSocket(proto+'://'+location.host+'/ws/data');ws.onopen=()=>{status.textContent='Connected';status.className='ok';};ws.onmessage=e=>{try{update(JSON.parse(e.data));}catch(err){console.error(err);} };ws.onclose=()=>{status.textContent='Reconnecting...';status.className='warn';setTimeout(connect,1000);};ws.onerror=()=>ws.close();}connect();"
+        // Legacy logging export endpoint and minimal /unified page removed
 
         DIGITOYS_LOGI("WifiMonitor", "HTTP server started on port %d with WebSocket support", config.server_port);
         return ESP_OK;
@@ -2401,7 +2391,7 @@ namespace wifi_monitor
             .then(response => response.json())
             .then(data => {
                 const physicsCharts = document.getElementById('physicsCharts');
-                if (data.entry_count > 0) {
+                if ((data.csv_rows_sent || 0) > 0) {
                     // Show charts if we have logged data
                     physicsCharts.style.display = 'block';
                 } else {
@@ -2768,7 +2758,7 @@ namespace wifi_monitor
                     chartsLocked = false;
                     document.getElementById('chartsStatus').textContent = '(Live Updates)';
                     document.getElementById('chartsStatus').style.color = '#2ea043';
-                } else if (data.entry_count > 0) {
+                } else if ((data.csv_rows_sent || 0) > 0) {
                     chartsLocked = true;
                     document.getElementById('chartsStatus').textContent = '(Showing Last Logged Data)';
                     document.getElementById('chartsStatus').style.color = '#d29922';
@@ -2783,20 +2773,20 @@ namespace wifi_monitor
                 if (startBtn) startBtn.disabled = loggingActive;
                 if (stopBtn) stopBtn.disabled = !loggingActive;
                 
-                // Update entry count
-                if (data.entry_count !== undefined) {
-                    updateLogEntries(data.entry_count);
+                // Update entry count (use CSV streaming counters)
+                if (data.csv_rows_sent !== undefined) {
+                    updateLogEntries(data.csv_rows_sent);
                 }
                 
-                // Update data size
-                if (data.data_size_kb !== undefined) {
-                    updateLogSize(data.data_size_kb);
+                // Update data size (use CSV bytes sent)
+                if (data.csv_bytes_sent !== undefined) {
+                    updateLogSize(Math.max(0, Math.floor(data.csv_bytes_sent / 1024)));
                 }
                 
                 // Memory usage removed (no device-side storage)
                 
                 // Update last entry (if we have data)
-                if (data.entry_count > 0) {
+                if ((data.csv_rows_sent || 0) > 0) {
                     document.getElementById('lastEntry').textContent = 'Recently';
                     // Show physics charts if we have logged data
                     document.getElementById('physicsCharts').style.display = 'block';
@@ -3155,6 +3145,8 @@ namespace wifi_monitor
             ws_pkt.len = strlen(header);
             ws_pkt.type = HTTPD_WS_TYPE_TEXT;
             (void)httpd_ws_send_frame_async(instance_->server_, sockfd, &ws_pkt);
+            // Track bytes sent (header isn't a row)
+            instance_->csv_bytes_sent_ += ws_pkt.len;
             return ESP_OK;
         }
 
@@ -3184,82 +3176,7 @@ namespace wifi_monitor
         return ESP_OK;
     }
 
-    esp_err_t WifiMonitor::broadcastDataEntry(const std::string &data_json)
-    {
-        if (xSemaphoreTake(ws_clients_mutex_, pdMS_TO_TICKS(100)) != pdTRUE)
-        {
-            return ESP_ERR_TIMEOUT;
-        }
-
-        // Create WebSocket frame
-        httpd_ws_frame_t ws_pkt;
-        memset(&ws_pkt, 0, sizeof(httpd_ws_frame_t));
-        ws_pkt.payload = (uint8_t *)data_json.c_str();
-        ws_pkt.len = data_json.length();
-        ws_pkt.type = HTTPD_WS_TYPE_TEXT;
-
-        // Send to all data streaming clients
-        auto it = websocket_data_clients_.begin();
-        while (it != websocket_data_clients_.end())
-        {
-            int sockfd = *it;
-
-            // Try to send data
-            if (httpd_ws_send_frame_async(server_, sockfd, &ws_pkt) != ESP_OK)
-            {
-                // Client disconnected, remove from list
-                DIGITOYS_LOGW("WifiMonitor", "Failed to send data to client %d, removing", sockfd);
-                it = websocket_data_clients_.erase(it);
-            }
-            else
-            {
-                ++it;
-            }
-        }
-
-        xSemaphoreGive(ws_clients_mutex_);
-        return ESP_OK;
-    }
-
-    void WifiMonitor::setupDataLoggerStreaming()
-    {
-        if (!data_logger_service_)
-        {
-            DIGITOYS_LOGW("WifiMonitor", "No DataLogger service available for streaming setup");
-            return;
-        }
-
-        auto *data_logger = data_logger_service_->getDataLogger();
-        if (!data_logger)
-        {
-            DIGITOYS_LOGW("WifiMonitor", "No DataLogger instance available for streaming setup");
-            return;
-        }
-
-        // Set up streaming callback
-        auto streaming_callback = [this](const digitoys::datalogger::DataEntry &entry, const std::string &source_name)
-        {
-            // Convert DataEntry to JSON and broadcast
-            cJSON *json = cJSON_CreateObject();
-            cJSON_AddStringToObject(json, "source", source_name.c_str());
-            cJSON_AddStringToObject(json, "key", entry.key.c_str());
-            cJSON_AddStringToObject(json, "value", entry.value.c_str());
-            cJSON_AddNumberToObject(json, "timestamp_us", entry.timestamp_us);
-            cJSON_AddNumberToObject(json, "type", static_cast<int>(entry.type));
-
-            char *json_string = cJSON_Print(json);
-            if (json_string)
-            {
-                std::string data_str(json_string);
-                broadcastDataEntry(data_str);
-                free(json_string);
-            }
-            cJSON_Delete(json);
-        };
-
-        data_logger->setStreamingCallback(streaming_callback);
-        DIGITOYS_LOGI("WifiMonitor", "DataLogger streaming callback configured");
-    }
+    // DataLogger streaming removed: using unified TelemetryFrame only
 
     // WebSocket task function (placeholder for future implementation)
     void WifiMonitor::webSocketTaskFunction(void *param)
@@ -3339,19 +3256,7 @@ namespace wifi_monitor
         return ESP_OK;
     }
 
-    bool WifiMonitor::isLoggingActive() const
-    {
-        bool active = logging_active_;
-        if (data_logger_service_)
-        {
-            auto *data_logger = data_logger_service_->getDataLogger();
-            if (data_logger)
-            {
-                active = active || (data_logger->isRunning() && !data_logger->isMonitoringMode());
-            }
-        }
-        return active;
-    }
+    bool WifiMonitor::isLoggingActive() const { return logging_active_; }
 
     void WifiMonitor::clearDiagnosticData()
     {
@@ -3473,276 +3378,7 @@ namespace wifi_monitor
         return csv;
     }
 
-    std::string WifiMonitor::getDataLoggerJSON() const
-    {
-        DIGITOYS_LOGI("WifiMonitor", "Starting getDataLoggerJSON");
-
-        if (!data_logger_service_)
-        {
-            DIGITOYS_LOGE("WifiMonitor", "DataLogger service not available");
-            return "{\"error\":\"DataLogger service not available\",\"entries\":[],\"count\":0}";
-        }
-
-        auto *data_logger = data_logger_service_->getDataLogger();
-        auto collected_data = data_logger->getCollectedData();
-
-        std::string json = "{\"entries\":[";
-
-        for (size_t i = 0; i < collected_data.size(); ++i)
-        {
-            const auto &entry = collected_data[i];
-
-            if (i > 0)
-                json += ",";
-            json += "{";
-            json += "\"key\":\"" + entry.key + "\",";
-            json += "\"value\":\"" + entry.value + "\",";
-            json += "\"timestamp\":" + std::to_string(entry.timestamp_us);
-            json += "}";
-
-            // Yield periodically for large datasets
-            if (i % 100 == 0)
-            {
-                vTaskDelay(1);
-            }
-        }
-
-        json += "],\"count\":" + std::to_string(collected_data.size()) + "}";
-
-        DIGITOYS_LOGI("WifiMonitor", "getDataLoggerJSON completed, final size: %d bytes", json.length());
-        return json;
-    }
-
-    std::string WifiMonitor::getDataLoggerCSV() const
-    {
-        DIGITOYS_LOGI("WifiMonitor", "Starting getDataLoggerCSV");
-
-        if (!data_logger_service_)
-        {
-            DIGITOYS_LOGE("WifiMonitor", "DataLogger service not available");
-            return "error\nDataLogger service not available\n";
-        }
-
-        auto *data_logger = data_logger_service_->getDataLogger();
-
-        // Use logged data for export (persistent data from logging sessions)
-        auto collected_data = data_logger->getLoggedData();
-
-        if (collected_data.empty())
-        {
-            DIGITOYS_LOGW("WifiMonitor", "No logged data available for export");
-            return "error\nNo logged data available. Start a logging session first.\n";
-        }
-
-        // CSV header: timestamp first, then source, key, value, and numeric type
-        std::string csv = "timestamp_us,source,key,value,type\n";
-
-        for (size_t i = 0; i < collected_data.size(); ++i)
-        {
-            const auto &entry = collected_data[i];
-
-            csv += std::to_string(entry.timestamp_us) + ",";
-            csv += (entry.source.empty() ? std::string("unknown") : entry.source) + ",";
-            csv += entry.key + ",";
-            csv += entry.value + ",";
-            csv += std::to_string(static_cast<int>(entry.type)) + "\n";
-
-            // Yield periodically for large datasets
-            if (i % 100 == 0)
-            {
-                vTaskDelay(1);
-            }
-        }
-
-        DIGITOYS_LOGI("WifiMonitor", "getDataLoggerCSV completed, final size: %d bytes, entries: %zu",
-                      csv.length(), collected_data.size());
-        return csv;
-    }
-
-    // Build a wide CSV sampled at a fixed rate with normalized units
-    std::string WifiMonitor::getDataLoggerWideCSV(uint32_t rate_hz) const
-    {
-        if (!data_logger_service_)
-        {
-            return "error\nDataLogger service not available\n";
-        }
-
-        if (rate_hz == 0)
-            rate_hz = 5;
-        if (rate_hz > 50)
-            rate_hz = 50; // sanity cap
-        const uint32_t period_ms = 1000 / rate_hz;
-
-        auto *data_logger = data_logger_service_->getDataLogger();
-        auto entries = data_logger->getLoggedData(); // event-style entries across sources
-        if (entries.empty())
-        {
-            return "error\nNo logged data available. Start a logging session first.\n";
-        }
-
-        // Determine start timestamp for relative time
-        uint64_t start_ts = entries.front().timestamp_us;
-        for (const auto &e : entries)
-            if (e.timestamp_us < start_ts)
-                start_ts = e.timestamp_us;
-
-        // Header
-        std::string csv =
-            "timestamp_us,rc_input_pct,obstacle_distance_m,speed_est_kmh,brake_distance_m,safety_margin_m,"
-            "is_obstacle,is_warning,driving_forward,driving_backward,wants_reverse,throttle_pressed,"
-            "time_to_impact_s,deceleration_mps2,brake_events,warning_events,source\n";
-
-        // State to carry forward values between samples
-        struct RowState
-        {
-            float rc_input_pct = NAN;
-            float dist_m = NAN;
-            float speed_kmh = NAN;
-            float brake_m = NAN;
-            float safety_m = NAN;
-            int obstacle = 0;
-            int warning = 0;
-            int driving_fwd = 0;
-            int driving_bwd = 0;
-            int wants_rev = 0;
-            int throttle = 0;
-            float tti_s = NAN;
-            float decel_mps2 = NAN;
-            uint32_t brake_events = 0;
-            uint32_t warning_events = 0;
-            std::string source;
-        } state;
-
-        // Helper to parse numeric safely
-        auto parseF = [](const std::string &s, float &out)
-        {
-            char *end=nullptr; out = strtof(s.c_str(), &end); return end && *end=='\0'; };
-        auto parseU = [](const std::string &s, uint32_t &out)
-        {
-            char *end=nullptr; unsigned long v=strtoul(s.c_str(), &end, 10); if(end&&*end=='\0'){out=(uint32_t)v; return true;} return false; };
-
-        // Walk time in fixed steps, and for each bucket, fold all entries within [t, t+period)
-        uint64_t end_ts = entries.back().timestamp_us;
-        for (uint64_t t = start_ts; t <= end_ts; t += (uint64_t)period_ms * 1000ULL)
-        {
-            // Apply entries that fall into this bucket
-            for (const auto &e : entries)
-            {
-                if (e.timestamp_us < t || e.timestamp_us >= t + (uint64_t)period_ms * 1000ULL)
-                    continue;
-
-                // Update source (last writer wins)
-                if (!e.source.empty())
-                    state.source = e.source;
-
-                // Normalize by key
-                if (e.key == "rc_input")
-                {
-                    float v;
-                    if (parseF(e.value, v))
-                        state.rc_input_pct = v * 100.0f;
-                }
-                else if (e.key == "obstacle_distance")
-                {
-                    float v;
-                    if (parseF(e.value, v))
-                    {
-                        // Assume ControlTask may be cm; if clearly >10, convert cm->m; otherwise keep
-                        state.dist_m = (v > 10.0f ? v / 100.0f : v);
-                    }
-                }
-                else if (e.key == "calculated_speed" || e.key == "speed_estimate")
-                {
-                    float v;
-                    if (parseF(e.value, v))
-                        state.speed_kmh = v * 3.6f; // m/s -> km/h
-                }
-                else if (e.key == "brake_distance")
-                {
-                    float v;
-                    if (parseF(e.value, v))
-                        state.brake_m = (v > 10.0f ? v / 100.0f : v);
-                }
-                else if (e.key == "safety_margin")
-                {
-                    float v;
-                    if (parseF(e.value, v))
-                        state.safety_m = (v > 10.0f ? v / 100.0f : v);
-                }
-                else if (e.key == "is_obstacle_state" || e.key == "obstacle_detected")
-                {
-                    state.obstacle = (e.value == "1" || e.value == "true");
-                }
-                else if (e.key == "is_warning_state" || e.key == "warning_active")
-                {
-                    state.warning = (e.value == "1" || e.value == "true");
-                }
-                else if (e.key == "driving_forward")
-                {
-                    state.driving_fwd = (e.value == "1" || e.value == "true");
-                }
-                else if (e.key == "wants_reverse")
-                {
-                    state.wants_rev = (e.value == "1" || e.value == "true");
-                }
-                else if (e.key == "throttle_pressed")
-                {
-                    state.throttle = (e.value == "1" || e.value == "true");
-                }
-                else if (e.key == "time_to_impact")
-                {
-                    float v;
-                    if (parseF(e.value, v))
-                        state.tti_s = v;
-                }
-                else if (e.key == "deceleration")
-                {
-                    float v;
-                    if (parseF(e.value, v))
-                        state.decel_mps2 = v;
-                }
-                else if (e.key == "brake_events")
-                {
-                    uint32_t v;
-                    if (parseU(e.value, v))
-                        state.brake_events = v;
-                }
-                else if (e.key == "warning_events")
-                {
-                    uint32_t v;
-                    if (parseU(e.value, v))
-                        state.warning_events = v;
-                }
-            }
-
-            // Derive driving_backward if possible: wants_reverse and not forward
-            state.driving_bwd = (state.wants_rev && !state.driving_fwd) ? 1 : 0;
-
-            // Write row using relative timestamp
-            uint64_t rel_us = (t - start_ts);
-            auto fmtOpt = [](float v)
-            { return std::isnan(v) ? std::string("") : std::to_string(v); };
-            csv += std::to_string(rel_us) + ",";
-            csv += fmtOpt(state.rc_input_pct) + ",";
-            csv += fmtOpt(state.dist_m) + ",";
-            csv += fmtOpt(state.speed_kmh) + ",";
-            csv += fmtOpt(state.brake_m) + ",";
-            csv += fmtOpt(state.safety_m) + ",";
-            csv += std::to_string(state.obstacle) + ",";
-            csv += std::to_string(state.warning) + ",";
-            csv += std::to_string(state.driving_fwd) + ",";
-            csv += std::to_string(state.driving_bwd) + ",";
-            csv += std::to_string(state.wants_rev) + ",";
-            csv += std::to_string(state.throttle) + ",";
-            csv += fmtOpt(state.tti_s) + ",";
-            csv += fmtOpt(state.decel_mps2) + ",";
-            csv += std::to_string(state.brake_events) + ",";
-            csv += std::to_string(state.warning_events) + ",";
-            csv += (state.source.empty() ? std::string("") : state.source) + "\n";
-        }
-
-        return csv;
-    }
+    // DataLogger export helpers removed (JSON/CSV/Wide CSV)
 
     // HTTP handlers for diagnostic logging
     esp_err_t WifiMonitor::addCorsHeaders(httpd_req_t *req)
@@ -3772,7 +3408,9 @@ namespace wifi_monitor
 
             if (httpd_req_recv(req, content, recv_size) <= 0)
             {
-                httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Failed to receive request body");
+                httpd_resp_set_type(req, "application/json");
+                const char *response = "{\"status\":\"error\",\"message\":\"Failed to receive request body\"}";
+                httpd_resp_send(req, response, strlen(response));
                 return ESP_ERR_INVALID_ARG;
             }
             content[recv_size] = '\0';
@@ -3791,21 +3429,17 @@ namespace wifi_monitor
             }
             else if (action.find("clear") != std::string::npos)
             {
-                if (instance_->data_logger_service_)
-                {
-                    auto *data_logger = instance_->data_logger_service_->getDataLogger();
-                    result = data_logger->clear();
-                    DIGITOYS_LOGI("WifiMonitor", "DataLogger cleared");
-                }
-                else
-                {
-                    DIGITOYS_LOGE("WifiMonitor", "DataLogger service not available for clear");
-                    result = ESP_ERR_INVALID_STATE;
-                }
+                // Unified model: clear just resets local diagnostics and CSV counters
+                instance_->clearDiagnosticData();
+                instance_->csv_rows_sent_ = 0;
+                instance_->csv_bytes_sent_ = 0;
+                result = ESP_OK;
             }
             else
             {
-                httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid action");
+                httpd_resp_set_type(req, "application/json");
+                const char *response = "{\"status\":\"error\",\"message\":\"Invalid action\"}";
+                httpd_resp_send(req, response, strlen(response));
                 return ESP_ERR_INVALID_ARG;
             }
 
@@ -3832,104 +3466,13 @@ namespace wifi_monitor
             bool active = instance_->isLoggingActive();
             response += "\"logging_active\":" + std::string(active ? "true" : "false");
 
-            size_t entry_count = 0;
-            size_t memory_usage_bytes = 0;
-
-            if (instance_->data_logger_service_)
-            {
-                auto *data_logger = instance_->data_logger_service_->getDataLogger();
-                entry_count = data_logger->getEntryCount(); // Logged data count
-                memory_usage_bytes = data_logger->getMemoryUsage();
-            }
-
-            response += ",\"entry_count\":" + std::to_string(entry_count);
-            // memory usage fields removed from UI; keep data_size_kb for UI display
-            response += ",\"data_size_kb\":" + std::to_string(memory_usage_bytes / 1024);
+            // Provide lightweight CSV streaming counters for UI
+            response += ",\"csv_rows_sent\":" + std::to_string(instance_->csv_rows_sent_);
+            response += ",\"csv_bytes_sent\":" + std::to_string(instance_->csv_bytes_sent_);
             response += "}";
 
             httpd_resp_send(req, response.c_str(), response.length());
-            DIGITOYS_LOGD("WifiMonitor", "loggingControl GET -> active=%d, entries=%u", (int)active, (unsigned)entry_count);
-        }
-
-        return ESP_OK;
-    }
-
-    esp_err_t WifiMonitor::loggingDataHandler(httpd_req_t *req)
-    {
-        if (!instance_)
-            return ESP_ERR_INVALID_STATE;
-
-        DIGITOYS_LOGI("WifiMonitor", "loggingDataHandler called");
-
-        // Add CORS headers
-        addCorsHeaders(req);
-
-        // Check query parameter for format (default to csv for efficiency)
-        char query[100];
-        bool use_json = false;
-        bool use_wide = false;
-        uint32_t rate_hz = 5;
-        if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK)
-        {
-            char format[10];
-            if (httpd_query_key_value(query, "format", format, sizeof(format)) == ESP_OK)
-            {
-                if (strcmp(format, "json") == 0)
-                {
-                    use_json = true;
-                }
-                else if (strcmp(format, "wide") == 0)
-                {
-                    use_wide = true;
-                }
-            }
-            char rate_buf[10];
-            if (httpd_query_key_value(query, "rate_hz", rate_buf, sizeof(rate_buf)) == ESP_OK)
-            {
-                int r = atoi(rate_buf);
-                if (r > 0)
-                    rate_hz = (uint32_t)r;
-            }
-        }
-
-        if (use_json)
-        {
-            // JSON format
-            httpd_resp_set_type(req, "application/json");
-            std::string json_data = instance_->getDataLoggerJSON();
-            DIGITOYS_LOGI("WifiMonitor", "About to send JSON response, size: %d bytes", json_data.length());
-
-            if (json_data.length() > 80000)
-            { // 80KB limit for JSON
-                DIGITOYS_LOGW("WifiMonitor", "JSON data too large (%d bytes), sending error", json_data.length());
-                const char *error_response = "{\"error\":\"Data too large, use CSV format\",\"entries\":0}";
-                httpd_resp_send(req, error_response, strlen(error_response));
-            }
-            else
-            {
-                httpd_resp_send(req, json_data.c_str(), json_data.length());
-                DIGITOYS_LOGI("WifiMonitor", "JSON response sent successfully");
-            }
-        }
-        else if (use_wide)
-        {
-            httpd_resp_set_type(req, "text/csv");
-            httpd_resp_set_hdr(req, "Content-Disposition", "attachment; filename=\"physics_wide.csv\"");
-
-            std::string csv_data = instance_->getDataLoggerWideCSV(rate_hz);
-            httpd_resp_send(req, csv_data.c_str(), csv_data.length());
-        }
-        else
-        {
-            // CSV format (default, much more compact)
-            httpd_resp_set_type(req, "text/csv");
-            httpd_resp_set_hdr(req, "Content-Disposition", "attachment; filename=\"physics_data.csv\"");
-
-            std::string csv_data = instance_->getDataLoggerCSV();
-            DIGITOYS_LOGI("WifiMonitor", "About to send CSV response, size: %d bytes", csv_data.length());
-
-            httpd_resp_send(req, csv_data.c_str(), csv_data.length());
-            DIGITOYS_LOGI("WifiMonitor", "CSV response sent successfully");
+            DIGITOYS_LOGD("WifiMonitor", "loggingControl GET -> active=%d, rows=%u bytes=%u", (int)active, (unsigned)instance_->csv_rows_sent_, (unsigned)instance_->csv_bytes_sent_);
         }
 
         return ESP_OK;

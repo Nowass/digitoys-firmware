@@ -2214,6 +2214,21 @@ namespace wifi_monitor
             // If a braking result row is flagged, surface it in UI
             if (f.brake_event_flag) {
                 document.getElementById('brakeDistance').textContent = (f.brake_distance_calc_m || 0).toFixed(3) + ' m';
+                // Auto-stop label when finalized
+                const elStop = document.getElementById('brakeStopAt');
+                if (elStop) elStop.textContent = `${tele.distance.toFixed(2)} m`;
+            }
+            // Auto-start label on new event id
+            if (f.brake_event_id && typeof window.__lastSeenBrakeEventId === 'number') {
+                if (f.brake_event_id !== window.__lastSeenBrakeEventId) {
+                    const elStart = document.getElementById('brakeStartAt');
+                    if (elStart) elStart.textContent = `${tele.distance.toFixed(2)} m`;
+                    window.__lastSeenBrakeEventId = f.brake_event_id;
+                }
+            } else if (f.brake_event_id) {
+                window.__lastSeenBrakeEventId = f.brake_event_id;
+                const elStart = document.getElementById('brakeStartAt');
+                if (elStart) elStart.textContent = `${tele.distance.toFixed(2)} m`;
             }
         }
 
@@ -2223,6 +2238,8 @@ namespace wifi_monitor
     let csvGotHeader = false;
     let csvBytes = 0; // running size estimate for UI
     const CSV_HEADER_STR = 'seq,ts_us,rc_duty_raw,rc_throttle_pressed,rc_forward,rc_reverse,lidar_distance_m,lidar_filtered_m,obstacle_detected,warning_active,brake_distance_m,warning_distance_m,safety_margin_m,speed_approx_mps,brake_event_id,brake_event_flag,brake_distance_m';
+    // Track last seen brake event id for auto label updates (global on window to survive closures)
+    window.__lastSeenBrakeEventId = 0;
 
         function startCsvStream() {
             if (csvWS) { try { csvWS.close(); } catch(e){} csvWS = null; }
@@ -2513,6 +2530,8 @@ namespace wifi_monitor
                     csvRows = [];
                     csvBytes = 0;
                     streamingRowCount = 0;
+                    // Reset auto brake event id tracker
+                    window.__lastSeenBrakeEventId = 0;
                     
                     console.log('Data cleared successfully');
                     alert('All logged data has been cleared successfully.');
@@ -3527,6 +3546,20 @@ namespace wifi_monitor
                 instance_->clearDiagnosticData();
                 instance_->csv_rows_sent_ = 0;
                 instance_->csv_bytes_sent_ = 0;
+                // Reset braking measurement state and ID sequence
+                instance_->brake_event_active_ = false;
+                instance_->current_brake_event_id_ = 0;
+                instance_->last_brake_event_id_ = 0;
+                instance_->brake_event_id_seq_ = 0;
+                instance_->brake_start_ts_us_ = 0;
+                instance_->brake_stop_ts_us_ = 0;
+                instance_->brake_start_dist_m_ = 0.0f;
+                instance_->brake_stop_dist_m_ = 0.0f;
+                instance_->brake_min_dist_m_ = 0.0f;
+                instance_->last_brake_distance_m_ = 0.0f;
+                instance_->last_brake_method_ = BrakeMethod::NONE;
+                instance_->emit_brake_result_next_row_ = false;
+                instance_->zero_speed_consec_frames_ = 0;
                 result = ESP_OK;
             }
             else

@@ -252,10 +252,10 @@ namespace wifi_monitor
         static esp_err_t websocketDataHandler(httpd_req_t *req);
         static esp_err_t websocketCsvHandler(httpd_req_t *req);
         static esp_err_t loggingControlHandler(httpd_req_t *req);
-    // Braking measurement endpoints (semi-auto + manual)
-    static esp_err_t brakingStartHandler(httpd_req_t *req);  // POST /braking/start (manual override)
-    static esp_err_t brakingStopHandler(httpd_req_t *req);   // POST /braking/stop  (manual finalize)
-    static esp_err_t brakingStatusHandler(httpd_req_t *req); // GET  /braking/status
+        // Braking measurement endpoints (semi-auto + manual)
+        static esp_err_t brakingStartHandler(httpd_req_t *req);  // POST /braking/start (manual override)
+        static esp_err_t brakingStopHandler(httpd_req_t *req);   // POST /braking/stop  (manual finalize)
+        static esp_err_t brakingStatusHandler(httpd_req_t *req); // GET  /braking/status
         // Legacy DataLogger logging data handler removed
 
         // Helper methods
@@ -320,11 +320,11 @@ namespace wifi_monitor
         // Semi-automatic start based on threshold crossing; manual override supported via HTTP.
         // Optional auto-stop based on near-zero speed dwell; manual stop supported via HTTP.
         bool brake_event_active_ = false;
-        uint32_t brake_event_id_seq_ = 0;    // monotonically increasing id
+        uint32_t brake_event_id_seq_ = 0;     // monotonically increasing id
         uint32_t current_brake_event_id_ = 0; // id of active event
         uint64_t brake_start_ts_us_ = 0;
-    float    brake_start_dist_m_ = 0.0f;   // using filtered distance at start
-    float    brake_min_dist_m_ = 0.0f;     // running minimum filtered distance during event
+        float brake_start_dist_m_ = 0.0f; // using filtered distance at start
+        float brake_min_dist_m_ = 0.0f;   // running minimum filtered distance during event
 
         // Auto-stop detection
         bool auto_stop_enabled_ = true;
@@ -335,9 +335,14 @@ namespace wifi_monitor
         // Last finalized result (for status/UI)
         uint32_t last_brake_event_id_ = 0;
         uint64_t brake_stop_ts_us_ = 0;
-    float    brake_stop_dist_m_ = 0.0f;    // filtered min distance at stop
-        float    last_brake_distance_m_ = 0.0f; // start_dist - stop_dist
-        enum class BrakeMethod { NONE = 0, MANUAL = 1, AUTO = 2 };
+        float brake_stop_dist_m_ = 0.0f;     // filtered min distance at stop
+        float last_brake_distance_m_ = 0.0f; // start_dist - stop_dist
+        enum class BrakeMethod
+        {
+            NONE = 0,
+            MANUAL = 1,
+            AUTO = 2
+        };
         BrakeMethod last_brake_method_ = BrakeMethod::NONE;
 
         // Emit one flagged CSV row on next frame after finalize

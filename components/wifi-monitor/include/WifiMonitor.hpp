@@ -323,8 +323,8 @@ namespace wifi_monitor
         uint32_t brake_event_id_seq_ = 0;     // monotonically increasing id
         uint32_t current_brake_event_id_ = 0; // id of active event
         uint64_t brake_start_ts_us_ = 0;
-        float brake_start_dist_m_ = 0.0f; // using filtered distance at start
-        float brake_min_dist_m_ = 0.0f;   // running minimum filtered distance during event
+        float brake_start_dist_m_ = 0.0f; // using raw LiDAR distance at start
+        float brake_min_dist_m_ = 0.0f;   // running minimum raw LiDAR distance during event
 
         // Auto-stop detection
         bool auto_stop_enabled_ = true;
@@ -335,7 +335,7 @@ namespace wifi_monitor
         // Last finalized result (for status/UI)
         uint32_t last_brake_event_id_ = 0;
         uint64_t brake_stop_ts_us_ = 0;
-        float brake_stop_dist_m_ = 0.0f;     // filtered min distance at stop
+        float brake_stop_dist_m_ = 0.0f;     // raw min distance at stop
         float last_brake_distance_m_ = 0.0f; // start_dist - stop_dist
         enum class BrakeMethod
         {

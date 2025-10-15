@@ -329,12 +329,14 @@ namespace wifi_monitor
                     DIGITOYS_LOGD("WifiMonitor", "CSVstream active: seq=%u, data_clients=%u, csv_clients=%u",
                                   (unsigned)last_frame_.seq, (unsigned)data_clients, (unsigned)csv_clients);
                 }
-                // Extend CSV with braking columns: brake_event_id, brake_event_flag, brake_distance_m
+                // Extend CSV with braking columns: brake_event_id, brake_event_flag, brake_distance_m (result), brake_start_dist_m (used), brake_stop_dist_m (used)
                 char csv_row[320];
                 uint32_t be_id = brake_event_active_ ? current_brake_event_id_ : last_brake_event_id_;
                 int be_flag = emit_brake_result_next_row_ ? 1 : 0;
                 float be_dist = emit_brake_result_next_row_ ? last_brake_distance_m_ : 0.0f;
-                int len = snprintf(csv_row, sizeof(csv_row), "%u,%llu,%.6f,%d,%d,%d,%.4f,%.4f,%d,%d,%.4f,%.4f,%.4f,%.6f,%u,%d,%.4f",
+                float be_start = emit_brake_result_next_row_ ? brake_start_dist_m_ : 0.0f;
+                float be_stop = emit_brake_result_next_row_ ? brake_stop_dist_m_ : 0.0f;
+                int len = snprintf(csv_row, sizeof(csv_row), "%u,%llu,%.6f,%d,%d,%d,%.4f,%.4f,%d,%d,%.4f,%.4f,%.4f,%.6f,%u,%d,%.4f,%.4f,%.4f",
                                    (unsigned)last_frame_.seq,
                                    (unsigned long long)last_frame_.ts_us,
                                    last_frame_.rc_duty_raw,
@@ -351,7 +353,9 @@ namespace wifi_monitor
                                    last_frame_.speed_approx_mps,
                                    (unsigned)be_id,
                                    be_flag,
-                                   be_dist);
+                                   be_dist,
+                                   be_start,
+                                   be_stop);
                 if (len > 0 && len < (int)sizeof(csv_row))
                 {
                     if (xSemaphoreTake(ws_clients_mutex_, pdMS_TO_TICKS(5)) == pdTRUE)
@@ -1493,23 +1497,36 @@ namespace wifi_monitor
             // Speed shown in m/s (per request that it matches speed_approx_mps)
             let speed_mps = (typeof telemetryData.speed_mps === 'number') ? telemetryData.speed_mps : ((telemetryData.speed_est || 0) / 3.6);
             speed.textContent = `${speed_mps.toFixed(2)} m/s`;
-            // Show LiDAR distance directly in meters
-            latestDistanceM = (typeof telemetryData.distance === 'number') ? telemetryData.distance : 0;
-            safety.textContent = `${latestDistanceM.toFixed(2)} m`;
+            
+            // Show LiDAR distance directly in meters (always show actual LiDAR reading)
+            // Handle infinity (no object detected) properly
+            latestDistanceM = (typeof telemetryData.lidar_distance_m === 'number') ? telemetryData.lidar_distance_m : 
+                              (typeof telemetryData.distance === 'number') ? telemetryData.distance : 0;
+            
+            // Display distance: show "No object" for infinity, otherwise show value
+            if (!isFinite(latestDistanceM)) {
+                safety.textContent = 'No object';
+                latestDistanceM = 999.0; // Use large value for internal logic
+            } else {
+                safety.textContent = `${latestDistanceM.toFixed(2)} m`;
+            }
             
             // Determine visual state based on obstacle and warning
+            // Use lidar_distance_m for display (always available), fallback to distance for legacy
+            let displayDistance = latestDistanceM;
+            
             if (telemetryData.obstacle) {
                 // CRITICAL - Car with braking
-                distanceDisplay.textContent = `🚧 ←--${telemetryData.distance.toFixed(1)}m--> 🛑🚗`;
+                distanceDisplay.textContent = `🚧 ←--${displayDistance.toFixed(1)}m--> 🛑🚗`;
                 statusText.textContent = 'EMERGENCY BRAKE';
                 statusText.className = 'status-text danger';
             } else if (telemetryData.warning) {
                 // WARNING - Car with distance
-                distanceDisplay.textContent = `🚧 ←--${telemetryData.distance.toFixed(1)}m--> 🚗`;
+                distanceDisplay.textContent = `🚧 ←--${displayDistance.toFixed(1)}m--> 🚗`;
                 statusText.textContent = 'WARNING';
                 statusText.className = 'status-text warning';
             } else {
-                // SAFE - Just the car
+                // SAFE - Just show car icon (distance shown in LiDAR Distance field below)
                 distanceDisplay.textContent = '🚗';
                 statusText.textContent = 'All Clear';
                 statusText.className = 'status-text';
@@ -2170,11 +2187,11 @@ namespace wifi_monitor
 
         function parseCsvRow(line) {
             const parts = line.split(',');
-            if (parts.length !== 17) return null;
+            if (parts.length !== 19) return null;
             const [seq, ts_us, rc_duty_raw, rc_throttle_pressed, rc_forward, rc_reverse,
                    lidar_distance_m, lidar_filtered_m, obstacle_detected, warning_active,
                    brake_distance_m, warning_distance_m, safety_margin_m, speed_approx_mps,
-                   brake_event_id, brake_event_flag, brake_distance_calc_m] = parts;
+                   brake_event_id, brake_event_flag, brake_distance_calc_m, brake_start_dist_m, brake_stop_dist_m] = parts;
             const toNum = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
             return {
                 seq: parseInt(seq, 10) || 0,
@@ -2193,7 +2210,9 @@ namespace wifi_monitor
                 speed_mps: toNum(speed_approx_mps),
                 brake_event_id: parseInt(brake_event_id, 10) || 0,
                 brake_event_flag: (brake_event_flag === '1'),
-                brake_distance_calc_m: toNum(brake_distance_calc_m)
+                brake_distance_calc_m: toNum(brake_distance_calc_m),
+                brake_start_dist_m: toNum(brake_start_dist_m),
+                brake_stop_dist_m: toNum(brake_stop_dist_m)
             };
         }
 
@@ -2211,24 +2230,36 @@ namespace wifi_monitor
             if (document.getElementById('physicsCharts').style.display === 'block') {
                 updatePhysicsDisplay(tele);
             }
-            // If a braking result row is flagged, surface it in UI
+            // If a braking result row is flagged, surface it in UI using authoritative server values
             if (f.brake_event_flag) {
-                document.getElementById('brakeDistance').textContent = (f.brake_distance_calc_m || 0).toFixed(3) + ' m';
-                // Auto-stop label when finalized
+                // Prefer CSV-provided start/stop/result for exact values used by device
+                if (typeof f.brake_distance_calc_m === 'number' && f.brake_distance_calc_m > 0) {
+                    document.getElementById('brakeDistance').textContent = f.brake_distance_calc_m.toFixed(3) + ' m';
+                }
                 const elStop = document.getElementById('brakeStopAt');
-                if (elStop) elStop.textContent = `${tele.distance.toFixed(2)} m`;
+                if (elStop) {
+                    const v = (typeof f.brake_stop_dist_m === 'number' && f.brake_stop_dist_m > 0) ? f.brake_stop_dist_m : tele.distance;
+                    elStop.textContent = `${v.toFixed(2)} m`;
+                }
             }
-            // Auto-start label on new event id
+            // Auto-start label on new event id: use authoritative start distance from server
             if (f.brake_event_id && typeof window.__lastSeenBrakeEventId === 'number') {
                 if (f.brake_event_id !== window.__lastSeenBrakeEventId) {
                     const elStart = document.getElementById('brakeStartAt');
-                    if (elStart) elStart.textContent = `${tele.distance.toFixed(2)} m`;
+                    if (elStart) {
+                        const v = (typeof f.brake_start_dist_m === 'number' && f.brake_start_dist_m > 0) ? f.brake_start_dist_m : tele.distance;
+                        elStart.textContent = `${v.toFixed(2)} m`;
+                    }
                     window.__lastSeenBrakeEventId = f.brake_event_id;
                 }
             } else if (f.brake_event_id) {
+                // Initialize tracker on first observe
                 window.__lastSeenBrakeEventId = f.brake_event_id;
                 const elStart = document.getElementById('brakeStartAt');
-                if (elStart) elStart.textContent = `${tele.distance.toFixed(2)} m`;
+                if (elStart) {
+                    const v = (typeof f.brake_start_dist_m === 'number' && f.brake_start_dist_m > 0) ? f.brake_start_dist_m : tele.distance;
+                    elStart.textContent = `${v.toFixed(2)} m`;
+                }
             }
         }
 
@@ -2237,7 +2268,7 @@ namespace wifi_monitor
     let csvRows = [];
     let csvGotHeader = false;
     let csvBytes = 0; // running size estimate for UI
-    const CSV_HEADER_STR = 'seq,ts_us,rc_duty_raw,rc_throttle_pressed,rc_forward,rc_reverse,lidar_distance_m,lidar_filtered_m,obstacle_detected,warning_active,brake_distance_m,warning_distance_m,safety_margin_m,speed_approx_mps,brake_event_id,brake_event_flag,brake_distance_m';
+    const CSV_HEADER_STR = 'seq,ts_us,rc_duty_raw,rc_throttle_pressed,rc_forward,rc_reverse,lidar_distance_m,lidar_filtered_m,obstacle_detected,warning_active,brake_distance_m,warning_distance_m,safety_margin_m,speed_approx_mps,brake_event_id,brake_event_flag,brake_distance_m,brake_start_dist_m,brake_stop_dist_m';
     // Track last seen brake event id for auto label updates (global on window to survive closures)
     window.__lastSeenBrakeEventId = 0;
 
@@ -2260,7 +2291,7 @@ namespace wifi_monitor
                     const s = line.trim();
                     if (!s) return;
                     if (!csvGotHeader && s.startsWith('seq,')) { csvRows.push(s); csvGotHeader = true; csvBytes += s.length + 1; return; }
-                    if (s.split(',').length === 17) {
+                    if (s.split(',').length === 19) {
                         csvRows.push(s);
                         csvBytes += s.length + 1; // + newline
                         streamingRowCount++;
@@ -2622,15 +2653,46 @@ namespace wifi_monitor
             
             // Extract real vehicle physics data from telemetry
             var rcInput = telemetryData.rc_input || 0; // RC input percentage (already %)
-            var distance = (telemetryData.distance || 0) * 100; // Convert m to cm for chart
+            // Use LiDAR distance (always available), fallback to distance for legacy compatibility
+            var distanceM = (typeof telemetryData.lidar_distance_m === 'number') ? telemetryData.lidar_distance_m : (telemetryData.distance || 0);
+            
+            // Handle infinity (no object detected) - cap at max chart range
+            if (!isFinite(distanceM) || distanceM > 10.0) {
+                distanceM = 5.0; // Cap at 5 meters for chart display
+            }
+            
+            var distance = distanceM * 100; // Convert m to cm for chart
             // Prefer speed in m/s; fall back to km/h if provided by WS fallback
             var speed_mps = (typeof telemetryData.speed_mps === 'number') ? telemetryData.speed_mps : ((telemetryData.speed_est || 0) / 3.6);
             var speed = speed_mps * 3.6; // chart still uses km/h for readability
-            // Safety margin derived from LiDAR distance: use safety_m if provided in CSV-mapped telemetryData
-            // else approximate as distance - brake threshold (100cm)
+            // Safety margin from telemetry (already calculated based on distance - brake_distance)
+            // Convert from meters to cm for chart display
             var safetyMargin = (typeof telemetryData.safety_cm === 'number')
                 ? telemetryData.safety_cm
-                : Math.max(0, distance - 100);
+                : (typeof telemetryData.safety_margin_m === 'number')
+                    ? telemetryData.safety_margin_m * 100
+                    : 0;
+            
+            // Handle infinity in safety margin too
+            if (!isFinite(safetyMargin)) {
+                safetyMargin = 0;
+            }
+            
+            // Debug logging (rate-limited)
+            if (typeof window.__physicsDebugCounter === 'undefined') {
+                window.__physicsDebugCounter = 0;
+            }
+            if ((window.__physicsDebugCounter++ % 50) === 0) {
+                console.log('Physics data:', {
+                    lidar_dist_m: telemetryData.lidar_distance_m,
+                    brake_dist_m: telemetryData.brake_distance_m,
+                    safety_margin_m: telemetryData.safety_margin_m,
+                    safety_cm: telemetryData.safety_cm,
+                    calculated_safety: safetyMargin,
+                    brake_event_count: telemetryData.brake_event_count,
+                    brake_event_active: telemetryData.brake_event_active
+                });
+            }
             
             // Update data arrays
             speedData.push(speed);
@@ -2645,10 +2707,11 @@ namespace wifi_monitor
             if (safetyData.length > maxDataPoints) safetyData.shift();
             
             // Update charts with dual-axis system
-            // Determine dynamic Y max for distance up to 500 cm
+            // Determine dynamic Y max for distance (scale dynamically based on actual data)
             var distMax = 0;
             for (let i = 0; i < distanceData.length; i++) distMax = Math.max(distMax, distanceData[i]);
-            var rightMax = Math.max(300, Math.min(500, Math.ceil((distMax + 20) / 10) * 10));
+            // Start from 100cm minimum, scale up to 500cm max based on data
+            var rightMax = Math.max(100, Math.min(500, Math.ceil((distMax + 20) / 10) * 10));
 
             drawDualAxisChart(speedChart.ctx, 
                 { data: speedData, color: '#2ea043', label: 'Speed' },
@@ -2670,10 +2733,14 @@ namespace wifi_monitor
             document.getElementById('currentDistance').textContent = distance.toFixed(1) + ' cm';
             document.getElementById('currentSafety').textContent = safetyMargin.toFixed(1) + ' cm';
             
-            // Simulate brake events
-            if (safetyMargin < 20) {
-                var currentBrakes = parseInt(document.getElementById('brakeEvents').textContent) || 0;
-                document.getElementById('brakeEvents').textContent = currentBrakes + 1;
+            // Update brake distance display (converted from meters to meters for display)
+            if (typeof telemetryData.brake_distance_m === 'number') {
+                document.getElementById('brakeDistance').textContent = telemetryData.brake_distance_m.toFixed(2) + ' m';
+            }
+            
+            // Update brake event counter from actual telemetry data
+            if (typeof telemetryData.brake_event_count === 'number') {
+                document.getElementById('brakeEvents').textContent = telemetryData.brake_event_count.toString();
             }
         }
         
@@ -2821,12 +2888,23 @@ namespace wifi_monitor
             // no export button listener
             if (clearBtn) clearBtn.addEventListener('click', clearData);
             if (brakeStartBtn) brakeStartBtn.addEventListener('click', () => {
-                // Immediate UI feedback: show distance at press time
-                const el = document.getElementById('brakeStartAt');
-                if (el) el.textContent = `${latestDistanceM.toFixed(2)} m`;
+                // Only update the start label if this actually starts a NEW event
                 fetch('/braking/start', { method: 'POST' })
                   .then(r => r.json())
-                  .then(d => console.log('Braking start:', d))
+                  .then(d => {
+                      console.log('Braking start:', d);
+                      if (d && d.status === 'success' && typeof d.event_id === 'number') {
+                          // If event_id differs from our last seen, this indicates a new event started now
+                          if (d.event_id !== window.__lastSeenBrakeEventId) {
+                              const el = document.getElementById('brakeStartAt');
+                              if (el) el.textContent = `${latestDistanceM.toFixed(2)} m`;
+                              window.__lastSeenBrakeEventId = d.event_id;
+                          } else {
+                              // Already active; let CSV auto-update stand to avoid overwriting earlier auto-start label
+                              console.log('Braking already active; not overriding start label.');
+                          }
+                      }
+                  })
                   .catch(e => console.warn('Braking start failed', e));
             });
             if (brakeStopBtn) brakeStopBtn.addEventListener('click', () => {
@@ -3034,6 +3112,31 @@ namespace wifi_monitor
                 float rc_pct = 0.0f;
                 rc_pct = instance_->last_frame_.rc_duty_raw * 100.0f;
                 cJSON_AddNumberToObject(telemetry, "rc_input", rc_pct);
+
+                // Add LiDAR distance (ALWAYS use real-time last_frame data)
+                // This is the actual sensor reading, updated every frame
+                cJSON_AddNumberToObject(telemetry, "lidar_distance_m", instance_->last_frame_.lidar_distance_m);
+                cJSON_AddNumberToObject(telemetry, "lidar_filtered_m", instance_->last_frame_.lidar_filtered_m);
+
+                // Add safety margin and brake distance for physics charts
+                cJSON_AddNumberToObject(telemetry, "safety_margin_m", instance_->last_frame_.safety_margin_m);
+                cJSON_AddNumberToObject(telemetry, "safety_cm", instance_->last_frame_.safety_margin_m * 100.0f);
+                cJSON_AddNumberToObject(telemetry, "brake_distance_m", instance_->last_frame_.brake_distance_m);
+
+                // Add brake event counter for dashboard display
+                cJSON_AddNumberToObject(telemetry, "brake_event_count", (double)instance_->brake_event_id_seq_);
+                cJSON_AddBoolToObject(telemetry, "brake_event_active", instance_->brake_event_active_);
+
+                // Debug logging (rate-limited to every 100th message)
+                static uint32_t ws_telemetry_debug_count = 0;
+                if ((ws_telemetry_debug_count++ % 100) == 0)
+                {
+                    DIGITOYS_LOGD("WifiMonitor", "WS Telemetry: lidar=%.3fm, brake=%.3fm, safety=%.3fm, events=%u",
+                                  instance_->last_frame_.lidar_distance_m,
+                                  instance_->last_frame_.brake_distance_m,
+                                  instance_->last_frame_.safety_margin_m,
+                                  (unsigned)instance_->brake_event_id_seq_);
+                }
 
                 cJSON_AddItemToObject(root, "telemetry", telemetry);
                 xSemaphoreGive(instance_->telemetry_mutex_);
@@ -3252,7 +3355,7 @@ namespace wifi_monitor
             }
 
             // Send CSV header immediately
-            const char *header = "seq,ts_us,rc_duty_raw,rc_throttle_pressed,rc_forward,rc_reverse,lidar_distance_m,lidar_filtered_m,obstacle_detected,warning_active,brake_distance_m,warning_distance_m,safety_margin_m,speed_approx_mps,brake_event_id,brake_event_flag,brake_distance_m\n";
+            const char *header = "seq,ts_us,rc_duty_raw,rc_throttle_pressed,rc_forward,rc_reverse,lidar_distance_m,lidar_filtered_m,obstacle_detected,warning_active,brake_distance_m,warning_distance_m,safety_margin_m,speed_approx_mps,brake_event_id,brake_event_flag,brake_distance_m,brake_start_dist_m,brake_stop_dist_m\n";
             httpd_ws_frame_t ws_pkt = {};
             ws_pkt.payload = (uint8_t *)header;
             ws_pkt.len = strlen(header);
@@ -3711,8 +3814,8 @@ namespace wifi_monitor
             brake_event_active_ = true;
             current_brake_event_id_ = ++brake_event_id_seq_;
             brake_start_ts_us_ = f.ts_us;
-            brake_start_dist_m_ = f.lidar_filtered_m; // use filtered distance at start
-            brake_min_dist_m_ = f.lidar_filtered_m;
+            brake_start_dist_m_ = f.lidar_distance_m; // use raw LiDAR distance at start
+            brake_min_dist_m_ = f.lidar_distance_m;   // track minimum raw distance during event
             zero_speed_consec_frames_ = 0;
             DIGITOYS_LOGI("WifiMonitor", "Brake start auto: id=%u dist=%.3f ts=%llu",
                           (unsigned)current_brake_event_id_, brake_start_dist_m_, (unsigned long long)brake_start_ts_us_);
@@ -3723,9 +3826,9 @@ namespace wifi_monitor
     {
         if (!brake_event_active_)
             return;
-        // Track minimum filtered distance while braking event is active
-        if (f.lidar_filtered_m < brake_min_dist_m_)
-            brake_min_dist_m_ = f.lidar_filtered_m;
+        // Track minimum raw LiDAR distance while braking event is active
+        if (f.lidar_distance_m < brake_min_dist_m_)
+            brake_min_dist_m_ = f.lidar_distance_m;
         if (fabsf(f.speed_approx_mps) < STOP_SPEED_EPS_MPS)
         {
             if (++zero_speed_consec_frames_ >= STOP_DWELL_FRAMES)
@@ -3745,8 +3848,8 @@ namespace wifi_monitor
             return;
         // Capture stop metrics from last_frame_
         brake_stop_ts_us_ = last_frame_.ts_us;
-        // Use the minimum filtered distance recorded during the event as stop point
-        brake_stop_dist_m_ = std::min(brake_min_dist_m_, last_frame_.lidar_filtered_m);
+        // Use the minimum raw LiDAR distance recorded during the event as stop point
+        brake_stop_dist_m_ = std::min(brake_min_dist_m_, last_frame_.lidar_distance_m);
         last_brake_event_id_ = current_brake_event_id_;
         last_brake_distance_m_ = std::max(0.0f, brake_start_dist_m_ - brake_stop_dist_m_);
         last_brake_method_ = method;
@@ -3782,8 +3885,8 @@ namespace wifi_monitor
             instance_->brake_event_active_ = true;
             instance_->current_brake_event_id_ = ++instance_->brake_event_id_seq_;
             instance_->brake_start_ts_us_ = instance_->last_frame_.ts_us;
-            instance_->brake_start_dist_m_ = instance_->last_frame_.lidar_filtered_m;
-            instance_->brake_min_dist_m_ = instance_->last_frame_.lidar_filtered_m;
+            instance_->brake_start_dist_m_ = instance_->last_frame_.lidar_distance_m;
+            instance_->brake_min_dist_m_ = instance_->last_frame_.lidar_distance_m;
             instance_->zero_speed_consec_frames_ = 0;
         }
         httpd_resp_set_type(req, "application/json");

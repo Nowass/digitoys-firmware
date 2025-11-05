@@ -2740,7 +2740,13 @@ namespace wifi_monitor
             
             // Update brake event counter from actual telemetry data
             if (typeof telemetryData.brake_event_count === 'number') {
-                document.getElementById('brakeEvents').textContent = telemetryData.brake_event_count.toString();
+                const currentCount = telemetryData.brake_event_count;
+                document.getElementById('brakeEvents').textContent = currentCount.toString();
+                
+                // Debug logging (rate-limited to every 50th frame)
+                if ((debugFrameCount % 50) === 0) {
+                    console.log('Brake Events: count=' + currentCount + ' active=' + telemetryData.brake_event_active);
+                }
             }
         }
         
@@ -3131,11 +3137,12 @@ namespace wifi_monitor
                 static uint32_t ws_telemetry_debug_count = 0;
                 if ((ws_telemetry_debug_count++ % 100) == 0)
                 {
-                    DIGITOYS_LOGD("WifiMonitor", "WS Telemetry: lidar=%.3fm, brake=%.3fm, safety=%.3fm, events=%u",
+                    DIGITOYS_LOGD("WifiMonitor", "WS Telemetry: lidar=%.3fm, brake=%.3fm, safety=%.3fm, events=%u active=%d",
                                   instance_->last_frame_.lidar_distance_m,
                                   instance_->last_frame_.brake_distance_m,
                                   instance_->last_frame_.safety_margin_m,
-                                  (unsigned)instance_->brake_event_id_seq_);
+                                  (unsigned)instance_->brake_event_id_seq_,
+                                  (int)instance_->brake_event_active_);
                 }
 
                 cJSON_AddItemToObject(root, "telemetry", telemetry);
@@ -3817,8 +3824,9 @@ namespace wifi_monitor
             brake_start_dist_m_ = f.lidar_distance_m; // use raw LiDAR distance at start
             brake_min_dist_m_ = f.lidar_distance_m;   // track minimum raw distance during event
             zero_speed_consec_frames_ = 0;
-            DIGITOYS_LOGI("WifiMonitor", "Brake start auto: id=%u dist=%.3f ts=%llu",
-                          (unsigned)current_brake_event_id_, brake_start_dist_m_, (unsigned long long)brake_start_ts_us_);
+            DIGITOYS_LOGI("WifiMonitor", "Brake start AUTO: id=%u dist=%.3fm count=%u prev_margin=%.3f curr_margin=%.3f",
+                          (unsigned)current_brake_event_id_, brake_start_dist_m_, (unsigned)brake_event_id_seq_,
+                          prev_margin, curr_margin);
         }
     }
 
@@ -3829,6 +3837,16 @@ namespace wifi_monitor
         // Track minimum raw LiDAR distance while braking event is active
         if (f.lidar_distance_m < brake_min_dist_m_)
             brake_min_dist_m_ = f.lidar_distance_m;
+        
+        // Debug logging for auto-stop detection (rate-limited)
+        static uint32_t autostop_debug_count = 0;
+        if (brake_event_active_ && (autostop_debug_count++ % 200) == 0)
+        {
+            DIGITOYS_LOGD("WifiMonitor", "Auto-stop check: speed=%.4f m/s zero_frames=%lu/%lu (need %.4f m/s for %lu frames)",
+                          fabsf(f.speed_approx_mps), (unsigned long)zero_speed_consec_frames_, (unsigned long)STOP_DWELL_FRAMES,
+                          STOP_SPEED_EPS_MPS, (unsigned long)STOP_DWELL_FRAMES);
+        }
+        
         if (fabsf(f.speed_approx_mps) < STOP_SPEED_EPS_MPS)
         {
             if (++zero_speed_consec_frames_ >= STOP_DWELL_FRAMES)
@@ -3861,9 +3879,10 @@ namespace wifi_monitor
         // Emit a one-shot CSV row with braking result fields on next frame
         emit_brake_result_next_row_ = true;
 
-        DIGITOYS_LOGI("WifiMonitor", "Brake stop %s: id=%u dist=%.3f start=%.3f stop=%.3f",
+        DIGITOYS_LOGI("WifiMonitor", "Brake STOP %s: id=%u dist=%.3fm start=%.3fm stop=%.3fm total_count=%u",
                       method == BrakeMethod::AUTO ? "AUTO" : "MANUAL",
-                      (unsigned)last_brake_event_id_, last_brake_distance_m_, brake_start_dist_m_, brake_stop_dist_m_);
+                      (unsigned)last_brake_event_id_, last_brake_distance_m_, brake_start_dist_m_, brake_stop_dist_m_,
+                      (unsigned)brake_event_id_seq_);
     }
 
     // --- HTTP endpoints for braking control ---
@@ -3888,6 +3907,13 @@ namespace wifi_monitor
             instance_->brake_start_dist_m_ = instance_->last_frame_.lidar_distance_m;
             instance_->brake_min_dist_m_ = instance_->last_frame_.lidar_distance_m;
             instance_->zero_speed_consec_frames_ = 0;
+            DIGITOYS_LOGI("WifiMonitor", "Brake start MANUAL: id=%u dist=%.3fm count=%u", 
+                          (unsigned)instance_->current_brake_event_id_, instance_->brake_start_dist_m_, (unsigned)instance_->brake_event_id_seq_);
+        }
+        else
+        {
+            DIGITOYS_LOGW("WifiMonitor", "Brake start MANUAL ignored: event already active (id=%u count=%u)", 
+                          (unsigned)instance_->current_brake_event_id_, (unsigned)instance_->brake_event_id_seq_);
         }
         httpd_resp_set_type(req, "application/json");
         std::string resp = std::string("{\"status\":\"success\",\"event_id\":") + std::to_string(instance_->current_brake_event_id_) + "}";

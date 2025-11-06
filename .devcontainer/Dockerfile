@@ -4,7 +4,7 @@
 # • Adds a few extras & ensures every shell sources export.sh automatically   #
 ###############################################################################
 ARG DOCKER_TAG=latest
-FROM espressif/idf:${DOCKER_TAG}
+FROM docker.io/espressif/idf:${DOCKER_TAG}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Locale & common build utilities

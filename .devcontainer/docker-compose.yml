@@ -1,0 +1,28 @@
+version: "3.8"
+
+services:
+  esp-idf-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    # Pass IDF environment variables
+    environment:
+      - IDF_PATH=/opt/esp/idf
+      - IDF_TOOLS_PATH=/opt/esp
+      - OPENOCD_SCRIPTS=/opt/esp/tools/openocd-esp32/v0.12.0-esp32-20250422/openocd-esp32/share/openocd/scripts
+
+    # USB device access and privileges
+    privileged: true
+    devices:
+      - /dev/ttyUSB0:/dev/ttyUSB0
+      - /dev/ttyACM0:/dev/ttyACM0
+
+    # Mount workspace
+    volumes:
+      - ..:/workspace:cached
+
+    working_dir: /workspace
+
+    # Keep container running
+    command: sleep infinity

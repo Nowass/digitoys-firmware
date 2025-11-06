@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  esp-idf-dev:
+    # Example: Use a different USB port
+    # Uncomment and modify as needed
+    # devices:
+    #   - /dev/ttyUSB1:/dev/ttyUSB1
+    #   - /dev/ttyACM1:/dev/ttyACM1
+    
+    # Example: Add additional devices (webcam, etc.)
+    # devices:
+    #   - /dev/video0:/dev/video0
+    
+    # Example: Add custom environment variables
+    # environment:
+    #   - MY_CUSTOM_VAR=value
+    #   - DEBUG_LEVEL=verbose
+    
+    # Example: Mount additional volumes
+    # volumes:
+    #   - ~/my-local-tools:/tools:ro
+    
+    # Example: Override network settings
+    # network_mode: host

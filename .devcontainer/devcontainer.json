@@ -3,24 +3,13 @@
   //  ESP-IDF Dev Container (QEMU ready)
   // ————————————————————————————————————
   "name": "ESP-IDF QEMU",
-  // ---------- Build ----------
-  "build": {
-    "dockerfile": "Dockerfile"
-  },
-  // ---------- Runtime ---------- 
-  // pass IDF vars to every VS Code task & terminal
-  "containerEnv": {
-    "IDF_PATH": "/opt/esp/idf",
-    "IDF_TOOLS_PATH": "/opt/esp",
-    "OPENOCD_SCRIPTS": "/opt/esp/tools/openocd-esp32/v0.12.0-esp32-20250422/openocd-esp32/share/openocd/scripts"
-  },
-  // give the container USB & network access (flash/debug or QEMU TAP)
-  "runArgs": [
-    "--privileged",
-    "--device=/dev/ttyUSB0", // comment out if not needed
-    "--device=/dev/ttyACM0"
-  ],
-  // install & pre-configure extensions **inside** the container
+  
+  // Use docker-compose for configuration
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "esp-idf-dev",
+  "workspaceFolder": "/workspace",
+  
+  // Install & pre-configure extensions **inside** the container
   "customizations": {
     "vscode": {
       "extensions": [
@@ -39,6 +28,7 @@
       }
     }
   },
+  
   // ---------- First-run automation ----------
   "postCreateCommand": [
     ".devcontainer/setup-idf.sh",

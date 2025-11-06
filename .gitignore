@@ -15,8 +15,17 @@ build/
 # Python/VSCode virtual environments
 .venv/
 
+# Dev container personal overrides
+.devcontainer/docker-compose.override.yml
+
+# Managed components (downloaded by IDF component manager)
+managed_components/
+
+# Backup files
+*.old
+
+# Reference and archive directories
 reference-codebase/
 reference-codebase/*
-
 archive/
 archive/*

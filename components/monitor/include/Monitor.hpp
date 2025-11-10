@@ -4,6 +4,8 @@
 #include <esp_http_server.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
+#include <ComponentBase.hpp>
+#include <Constants.hpp>
 
 namespace monitor
 {
@@ -15,15 +17,29 @@ namespace monitor
         float speed_est = 0.0f;
     };
 
-    class Monitor
+    class Monitor : public digitoys::core::ComponentBase
     {
     public:
-        esp_err_t start();
+        Monitor() : ComponentBase("Monitor") {}
+        ~Monitor() override = default;
+
+        // Disable copy constructor and assignment operator
+        Monitor(const Monitor &) = delete;
+        Monitor &operator=(const Monitor &) = delete;
+
+        // IComponent interface implementation
+        esp_err_t initialize() override;
+        esp_err_t start() override;
+        esp_err_t stop() override;
+        esp_err_t shutdown() override;
+
         void updateTelemetry(bool obstacle, float distance, float speed_est, bool warning);
 
     private:
         esp_err_t init_wifi();
         esp_err_t start_http_server();
+        esp_err_t stop_http_server();
+
         static esp_err_t telemetry_get_handler(httpd_req_t *req);
         static esp_err_t index_get_handler(httpd_req_t *req);
 

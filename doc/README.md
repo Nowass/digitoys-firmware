@@ -26,6 +26,9 @@ This is the comprehensive documentation index for the DigiToys ESP32-C6 firmware
 - **[ADAS PWM Driver](./adas-pwm-driver.md)** - PWM signal capture, brake override, and RC passthrough
 - **[Monitor](./monitor.md)** - System telemetry, web dashboard, and metrics collection
 
+### Infrastructure & Development
+- **[Centralized Logging System](./centralized-logging.md)** - Production-ready logging with simplified 2-parameter API ⭐ **New**
+
 ### Supporting Components
 - **[BMI270 Driver](./bmi270-driver.md)** - Accelerometer driver (available but not currently integrated)
 
@@ -82,6 +85,7 @@ digitoys-firmware/
 │   ├── lidar-driver/     # LiDAR sensor interface
 │   ├── adas-pwm-driver/  # PWM signal management
 │   ├── monitor/          # Telemetry and web interface
+│   ├── digitoys-core/    # Infrastructure framework ⭐ NEW
 │   └── bmi270-driver/    # Accelerometer (unused)
 ├── doc/                  # Comprehensive documentation
 ├── dashboard/           # Web monitoring interface
@@ -95,6 +99,11 @@ graph TD
     A[main] --> B[control-task]
     B --> C[lidar-driver]
     B --> D[adas-pwm-driver]
+    B --> E[monitor]
+    B --> F[digitoys-core]
+    C --> F
+    D --> F
+    E --> F
     B --> E[monitor]
     C --> F[ESP-IDF UART]
     D --> G[ESP-IDF RMT/LEDC]

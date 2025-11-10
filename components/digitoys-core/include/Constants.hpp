@@ -1,0 +1,235 @@
+#pragma once
+
+#include <driver/gpio.h>
+#include <driver/uart.h>
+#include <driver/ledc.h>
+#include <esp_log.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
+namespace digitoys::constants
+{
+
+    /**
+     * @brief PWM-related constants
+     */
+    namespace pwm
+    {
+        constexpr float BRAKE_DUTY = 0.058f;                    ///< Full brake duty cycle (5.8%)
+        constexpr float NEUTRAL_DUTY = 0.0856f;                 ///< Neutral/zero speed duty cycle (8.56%)
+        constexpr float DUTY_STEP = 0.005f;                     ///< PWM duty cycle increment step (0.5%)
+        constexpr float DIRECTION_TOLERANCE = 0.005f;           ///< Tolerance for forward/reverse detection
+        constexpr float HIGH_SPEED_DUTY = NEUTRAL_DUTY + 0.03f; ///< High speed reference (~3% above neutral)
+
+        // Throttle detection parameters
+        constexpr float DEFAULT_THROTTLE_CENTER = NEUTRAL_DUTY; ///< Default throttle center position
+        constexpr float DEFAULT_THROTTLE_RANGE = 0.008f;        ///< Default throttle detection range
+
+        // RMT configuration constants
+        constexpr uint32_t RMT_RESOLUTION_HZ = 1000000;  ///< RMT clock resolution (1MHz)
+        constexpr size_t RMT_BUFFER_SIZE = 64;           ///< RMT receive buffer size
+        constexpr uint32_t RMT_SIGNAL_MIN_NS = 500;      ///< Minimum signal duration
+        constexpr uint32_t RMT_SIGNAL_MAX_NS = 10000000; ///< Maximum signal duration (10ms)
+        constexpr int RMT_INTERRUPT_PRIORITY = 2;        ///< RMT interrupt priority
+        constexpr size_t RMT_QUEUE_SIZE = 3;             ///< RMT event queue size
+
+        // Task configuration
+        constexpr size_t TASK_STACK_SIZE = 4096;                    ///< PWM task stack size
+        constexpr UBaseType_t TASK_PRIORITY = tskIDLE_PRIORITY + 1; ///< PWM task priority
+
+        // Default duty values for error conditions
+        constexpr float INVALID_DUTY = -1.0f; ///< Invalid duty cycle indicator
+        constexpr float DEFAULT_DUTY = 0.0f;  ///< Default duty cycle
+    }
+
+    /**
+     * @brief Timing-related constants
+     */
+    namespace timing
+    {
+        constexpr uint32_t CONTROL_LOOP_DELAY_MS = 50;   ///< Main control loop delay (20Hz)
+        constexpr uint32_t RC_CHECK_INTERVAL_MS = 100;   ///< RC input check interval during brake
+        constexpr uint32_t RC_READ_DELAY_MS = 20;        ///< Brief delay for fresh RC reading
+        constexpr uint32_t UART_TIMEOUT_MS = 20;         ///< UART read timeout
+        constexpr uint32_t PWM_READ_TIMEOUT_MS = 100;    ///< PWM input read timeout
+        constexpr uint32_t MOTOR_STARTUP_DELAY_MS = 300; ///< Motor startup delay
+    }
+
+    /**
+     * @brief Distance and obstacle detection constants
+     */
+    namespace distances
+    {
+        constexpr float MIN_BRAKE_DISTANCE_M = 0.5f;   ///< Minimum brake distance (safety)
+        constexpr float MAX_BRAKE_DISTANCE_M = 3.5f;   ///< Maximum brake distance
+        constexpr float MIN_WARNING_DISTANCE_M = 1.0f; ///< Minimum warning distance
+        constexpr float MAX_WARNING_DISTANCE_M = 5.0f; ///< Maximum warning distance
+
+        // LiDAR filtering
+        constexpr float DEFAULT_OBSTACLE_THRESHOLD_M = 0.8f; ///< Default obstacle detection threshold
+        constexpr float DEFAULT_WARNING_THRESHOLD_M = 1.2f;  ///< Default warning threshold
+    }
+
+    /**
+     * @brief Hardware pin definitions
+     *
+     * Centralized pin assignments for all hardware interfaces.
+     * Update these values to change hardware configuration.
+     */
+    namespace pins
+    {
+        // LiDAR pins
+        constexpr gpio_num_t LIDAR_TX = GPIO_NUM_10;   ///< LiDAR UART TX pin
+        constexpr gpio_num_t LIDAR_RX = GPIO_NUM_11;   ///< LiDAR UART RX pin
+        constexpr gpio_num_t LIDAR_MOTOR = GPIO_NUM_3; ///< LiDAR motor control pin
+
+        // PWM controller pins
+        constexpr gpio_num_t PWM_RX = GPIO_NUM_18; ///< PWM input (from RC receiver)
+        constexpr gpio_num_t PWM_TX = GPIO_NUM_19; ///< PWM output (to ESC)
+    }
+
+    /**
+     * @brief Hardware configuration constants
+     */
+    namespace hardware
+    {
+        // UART configuration
+        constexpr uart_port_t LIDAR_UART_PORT = UART_NUM_1; ///< LiDAR UART port
+        constexpr int LIDAR_UART_BAUD = 230400;             ///< LiDAR UART baud rate
+        constexpr int LIDAR_DMA_BUFFER_SIZE = 2048;         ///< LiDAR DMA buffer size
+
+        // LEDC configuration
+        constexpr ledc_channel_t LIDAR_MOTOR_CHANNEL = LEDC_CHANNEL_0; ///< LiDAR motor PWM channel
+        constexpr ledc_channel_t PWM_OUTPUT_CHANNEL = LEDC_CHANNEL_1;  ///< PWM output channel
+        constexpr ledc_timer_t LIDAR_MOTOR_TIMER = LEDC_TIMER_0;       ///< LiDAR motor PWM timer
+        constexpr ledc_timer_t PWM_OUTPUT_TIMER = LEDC_TIMER_1;        ///< PWM output timer
+
+        // Frequencies
+        constexpr uint32_t LIDAR_MOTOR_FREQ_HZ = 30000; ///< LiDAR motor PWM frequency
+        constexpr uint32_t PWM_OUTPUT_FREQ_HZ = 62;     ///< PWM output frequency (typical RC frequency)
+
+        // Motor control
+        constexpr int LIDAR_MOTOR_DUTY_PCT = 50; ///< LiDAR motor duty cycle percentage
+    }
+
+    /**
+     * @brief LiDAR-specific constants
+     */
+    namespace lidar_const
+    {
+        // Scan angle configuration (for obstacle detection sector)
+        constexpr float DEFAULT_ANGLE_MIN_DEG = 257.5f; ///< Default minimum scan angle
+        constexpr float DEFAULT_ANGLE_MAX_DEG = 282.5f; ///< Default maximum scan angle
+
+        // Frame parsing constants
+        constexpr int PKG_HEADER = 0x54;      ///< LiDAR frame header
+        constexpr int PKG_VER_LEN = 0x2C;     ///< LiDAR frame version/length
+        constexpr int POINT_PER_PACK = 12;    ///< Points per LiDAR frame
+        constexpr int POINT_FREQUENCY = 4500; ///< Point sampling frequency
+
+        // Filtering constants
+        constexpr float SCAN_FREQUENCY_HZ = 10.0f;      ///< LiDAR scan frequency
+        constexpr int INTENSITY_SINGLE_THRESHOLD = 180; ///< Single point intensity threshold
+        constexpr int INTENSITY_LOW_THRESHOLD = 200;    ///< Low intensity threshold
+        constexpr int MINIMUM_INTENSITY = 100;          ///< Minimum point intensity for processing
+
+        // Task configuration
+        constexpr size_t TASK_STACK_SIZE = 4096;                    ///< LiDAR task stack size
+        constexpr UBaseType_t TASK_PRIORITY = tskIDLE_PRIORITY + 1; ///< LiDAR task priority
+        constexpr uint32_t TASK_DELAY_MS = 10;                      ///< Task loop delay in milliseconds
+        constexpr uint32_t UART_READ_TIMEOUT_MS = 20;               ///< UART read timeout
+
+        // Data processing
+        constexpr size_t READ_BUFFER_SIZE = 512;            ///< UART read buffer size
+        constexpr float DISTANCE_UNIT_CONVERSION = 1000.0f; ///< Convert mm to meters
+    }
+
+    /**
+     * @brief System limits and constraints
+     */
+    namespace limits
+    {
+        constexpr size_t MAX_COMPONENTS = 16;            ///< Maximum number of components
+        constexpr size_t MAX_COMPONENT_NAME_LEN = 32;    ///< Maximum component name length
+        constexpr uint32_t WATCHDOG_TIMEOUT_MS = 5000;   ///< System watchdog timeout
+        constexpr size_t TASK_STACK_SIZE_DEFAULT = 8192; ///< Default task stack size
+    }
+
+    /**
+     * @brief Control task constants
+     */
+    namespace control_task
+    {
+        // Task configuration
+        constexpr size_t TASK_STACK_SIZE = 8192;                    ///< Control task stack size
+        constexpr UBaseType_t TASK_PRIORITY = tskIDLE_PRIORITY + 2; ///< Control task priority
+
+        // Logging intervals
+        constexpr int DUTY_TEST_LOG_INTERVAL = 40; ///< 40 * 50ms = 2 seconds
+        constexpr int THRESHOLD_LOG_INTERVAL = 40; ///< 40 * 50ms = 2 seconds
+
+        // Dynamic braking parameters (these override the basic distance constants)
+        constexpr float HIGH_SPEED_DUTY = pwm::NEUTRAL_DUTY + 0.03f; ///< ~3% above neutral (for scaling)
+    }
+
+    /**
+     * @brief Monitor component constants
+     */
+    namespace monitor
+    {
+        // HTTP server configuration
+        constexpr uint16_t HTTP_SERVER_PORT = 80;       ///< HTTP server port
+        constexpr size_t HTTP_SERVER_STACK_SIZE = 4096; ///< HTTP server stack size
+        constexpr int HTTP_RESPONSE_BUFFER_SIZE = 128;  ///< HTTP response buffer size
+        constexpr int HTTP_TELEMETRY_TIMEOUT_MS = 100;  ///< Telemetry data access timeout
+
+        // WiFi configuration
+        constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 10000; ///< WiFi connection timeout
+        constexpr uint32_t WIFI_RETRY_DELAY_MS = 5000;      ///< WiFi retry delay
+
+        // System monitoring
+        constexpr int MAX_MONITORED_TASKS = 20;             ///< Maximum tasks for system stats
+        constexpr uint32_t STATS_UPDATE_INTERVAL_MS = 1000; ///< Stats update interval
+        constexpr float DEFAULT_DISTANCE_CLAMP = 999.99f;   ///< Distance clamp for display (meters)
+
+        // Task configuration
+        constexpr size_t TASK_STACK_SIZE = 4096;                    ///< Monitor task stack size
+        constexpr UBaseType_t TASK_PRIORITY = tskIDLE_PRIORITY + 1; ///< Monitor task priority
+    }
+
+    /**
+     * @brief Centralized logging configuration
+     */
+    namespace logging
+    {
+        // Component TAG definitions
+        constexpr const char *TAG_MAIN = "MAIN";
+        constexpr const char *TAG_LIDAR = "LIDAR";
+        constexpr const char *TAG_PWM = "PWM";
+        constexpr const char *TAG_CONTROL = "CONTROL";
+        constexpr const char *TAG_MONITOR = "MONITOR";
+        constexpr const char *TAG_SYSTEM = "SYSTEM";
+        constexpr const char *TAG_CORE = "CORE";
+        constexpr const char *TAG_CONFIG = "CONFIG";
+
+        // Component names for logger registration
+        constexpr const char *COMPONENT_MAIN = "Main";
+        constexpr const char *COMPONENT_LIDAR = "LiDAR";
+        constexpr const char *COMPONENT_PWM = "PWM";
+        constexpr const char *COMPONENT_CONTROL = "Control";
+        constexpr const char *COMPONENT_MONITOR = "Monitor";
+        constexpr const char *COMPONENT_SYSTEM = "System";
+        constexpr const char *COMPONENT_CORE = "Core";
+        constexpr const char *COMPONENT_CONFIG = "Config";
+
+        // Default log levels
+        constexpr esp_log_level_t DEFAULT_LEVEL = ESP_LOG_INFO;
+        constexpr esp_log_level_t DEBUG_LEVEL = ESP_LOG_DEBUG;
+        constexpr esp_log_level_t VERBOSE_LEVEL = ESP_LOG_VERBOSE;
+
+        // Logging intervals and thresholds
+        constexpr uint32_t MAX_LOG_MESSAGE_SIZE = 256;
+        constexpr uint32_t LOG_BUFFER_SIZE = 1024;
+    }
+
+} // namespace digitoys::constants

@@ -1,5 +1,5 @@
 #include "SystemMonitor.hpp"
-#include <esp_log.h>
+#include <Logger.hpp>
 #include <esp_heap_caps.h>
 #include <freertos/task.h>
 #include <inttypes.h>
@@ -8,18 +8,74 @@
 
 namespace monitor
 {
-    static const char *TAG = "SystemMonitor";
     SystemMonitor *SystemMonitor::instance_ = nullptr;
+
+    esp_err_t SystemMonitor::initialize()
+    {
+        // Register with centralized logging system
+        DIGITOYS_REGISTER_COMPONENT("SystemMonitor", "MONITOR");
+        
+        DIGITOYS_LOGI("SystemMonitor", "Initializing SystemMonitor component");
+
+        prev_idle_time_ = 0;
+        prev_total_time_ = 0;
+
+        setState(digitoys::core::ComponentState::INITIALIZED);
+        return ESP_OK;
+    }
 
     esp_err_t SystemMonitor::start()
     {
+        if (getState() != digitoys::core::ComponentState::INITIALIZED && getState() != digitoys::core::ComponentState::STOPPED)
+        {
+            DIGITOYS_LOGW("SystemMonitor", "SystemMonitor not in correct state to start");
+            return ESP_ERR_INVALID_STATE;
+        }
+
+        DIGITOYS_LOGI("SystemMonitor", "Starting SystemMonitor component");
         instance_ = this;
+
+        setState(digitoys::core::ComponentState::RUNNING);
+        DIGITOYS_LOGI("SystemMonitor", "SystemMonitor component started successfully");
+        return ESP_OK;
+    }
+
+    esp_err_t SystemMonitor::stop()
+    {
+        if (getState() != digitoys::core::ComponentState::RUNNING)
+        {
+            DIGITOYS_LOGW("SystemMonitor", "SystemMonitor not running, cannot stop");
+            return ESP_ERR_INVALID_STATE;
+        }
+
+        DIGITOYS_LOGI("SystemMonitor", "Stopping SystemMonitor component");
+
+        instance_ = nullptr;
+
+        setState(digitoys::core::ComponentState::STOPPED);
+        DIGITOYS_LOGI("SystemMonitor", "SystemMonitor component stopped");
+        return ESP_OK;
+    }
+
+    esp_err_t SystemMonitor::shutdown()
+    {
+        if (getState() == digitoys::core::ComponentState::RUNNING)
+        {
+            esp_err_t ret = stop();
+            if (ret != ESP_OK)
+            {
+                DIGITOYS_LOGW("SystemMonitor", "Failed to stop during shutdown: %s", esp_err_to_name(ret));
+            }
+        }
+
+        setState(digitoys::core::ComponentState::UNINITIALIZED);
+        DIGITOYS_LOGI("SystemMonitor", "SystemMonitor component shutdown complete");
         return ESP_OK;
     }
 
     static float calculate_cpu_load(uint32_t &prev_idle, uint32_t &prev_total)
     {
-        const int MAX_TASKS = 20;
+        const int MAX_TASKS = digitoys::constants::monitor::MAX_MONITORED_TASKS;
         TaskStatus_t status[MAX_TASKS];
         uint32_t total_time = 0;
         UBaseType_t count = uxTaskGetSystemState(status, MAX_TASKS, &total_time);
@@ -54,7 +110,7 @@ namespace monitor
         size_t total_heap = heap_caps_get_total_size(MALLOC_CAP_DEFAULT);
         size_t free_heap = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
 
-        const int MAX_TASKS = 20;
+        const int MAX_TASKS = digitoys::constants::monitor::MAX_MONITORED_TASKS;
         TaskStatus_t status[MAX_TASKS];
         uint32_t total_time = 0;
         UBaseType_t count = uxTaskGetSystemState(status, MAX_TASKS, &total_time);

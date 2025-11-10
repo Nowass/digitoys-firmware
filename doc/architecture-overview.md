@@ -27,6 +27,13 @@ graph TB
         SYS[System Monitor]
     end
     
+    subgraph "Infrastructure Layer"
+        CORE[DigiToys Core]
+        LOG[Centralized Logger]
+        CFG[Config Framework]
+        BASE[Component Base]
+    end
+    
     subgraph "ESP-IDF & FreeRTOS"
         UART[UART HAL]
         RMT[RMT Driver]
@@ -39,6 +46,17 @@ graph TB
     CT --> PWM
     CT --> MON
     MON --> SYS
+    
+    CT --> CORE
+    LD --> CORE
+    PWM --> CORE
+    MON --> CORE
+    SYS --> CORE
+    
+    CORE --> LOG
+    CORE --> CFG
+    CORE --> BASE
+    
     LD --> UART
     PWM --> RMT
     PWM --> LEDC
@@ -54,6 +72,7 @@ graph TB
 | **lidar-driver** | LiDAR sensor interface | UART communication, frame parsing, motor control |
 | **adas-pwm-driver** | PWM signal management | RC input capture, brake signal generation |
 | **monitor** | System telemetry | Web dashboard, metrics collection, debugging |
+| **digitoys-core** | Infrastructure foundation | Centralized logging, component framework, config validation |
 | **bmi270-driver** | Accelerometer (unused) | Motion sensing, orientation detection |
 
 ## 🔄 Data Flow Architecture
@@ -126,18 +145,24 @@ sequenceDiagram
 - **LEDC Driver**: PWM output generation to ESC
 - **GPIO Control**: LiDAR motor control, status LEDs
 
-### Layer 2: Device Drivers
+### Layer 2: Infrastructure (DigiToys Core)
+- **Centralized Logger**: Production-ready logging with simplified 2-parameter API
+- **Component Framework**: Base classes for component lifecycle management
+- **Configuration System**: Validation, factory patterns, and error handling
+- **Constants Management**: Centralized system constants and configurations
+
+### Layer 3: Device Drivers
 - **LiDAR Driver**: Sensor data acquisition and processing
 - **PWM Driver**: Bidirectional PWM signal management
 - **System Monitor**: Hardware metrics collection
 
-### Layer 3: Application Logic
+### Layer 4: Application Logic
 - **Control Task**: Main control algorithms and safety logic
 - **Monitor**: Telemetry and web interface
 
-### Layer 4: User Interface
+### Layer 5: User Interface
 - **Web Dashboard**: Real-time monitoring interface
-- **Serial Console**: Debug and diagnostic output
+- **Serial Console**: Debug and diagnostic output (via centralized logging)
 
 ## 🔧 Module Interactions
 
@@ -223,22 +248,98 @@ stateDiagram-v2
 1. **Hardware Level**: Fail-safe PWM signal default (brake position)
 2. **Driver Level**: Input validation and signal conditioning
 3. **Application Level**: Multi-layered safety logic with dynamic thresholds
-4. **System Level**: Watchdog monitoring and error recovery
+4. **Infrastructure Level**: Centralized logging for comprehensive debugging
+5. **System Level**: Watchdog monitoring and error recovery
 
 **Safety Mechanisms:**
 - **Dynamic Braking Distances**: Speed-dependent safety zones
 - **Progressive Intervention**: Warning → Slowdown → Emergency brake
 - **Manual Override**: Reverse motion clears all safety states
 - **Signal Validation**: RC input and LiDAR data integrity checks
+- **Centralized Debugging**: All components use unified logging for rapid issue diagnosis
+
+## 🏗️ Infrastructure Architecture (DigiToys Core)
+
+### Centralized Logging System
+
+The firmware features a **production-ready centralized logging system** that provides unified debugging across all components:
+
+```mermaid
+graph LR
+    subgraph "Components"
+        CT[Control Task]
+        LD[LiDAR Driver]
+        PWM[PWM Driver]
+        MON[Monitor]
+    end
+    
+    subgraph "DigiToys Core"
+        LOG[Centralized Logger]
+        REG[Component Registry]
+        TAGS[Tag Management]
+    end
+    
+    subgraph "Output"
+        UART[Serial Console]
+        WEB[Web Dashboard]
+    end
+    
+    CT -->|"DIGITOYS_LOGI('ControlTask', msg)"| LOG
+    LD -->|"DIGITOYS_LOGW('LiDAR', msg)"| LOG
+    PWM -->|"DIGITOYS_LOGE('PwmDriver', msg)"| LOG
+    MON -->|"DIGITOYS_LOGD('Monitor', msg)"| LOG
+    
+    LOG --> REG
+    LOG --> TAGS
+    LOG --> UART
+    LOG --> WEB
+```
+
+**Key Features:**
+- **Simplified 2-parameter API**: `DIGITOYS_LOGI("Component", "message")` 
+- **Component Registration**: Each component registers once with its tag
+- **Runtime Control**: Per-component log level control without rebuilding
+- **Memory Efficient**: No per-component storage overhead
+- **ESP-IDF Integration**: Seamless integration with existing tools
+
+### Component Framework
+
+All major components inherit from `ComponentBase` providing:
+- **Standardized Lifecycle**: Initialize → Start → Stop → Shutdown
+- **State Management**: Unified state tracking and transitions
+- **Error Handling**: Consistent error reporting and recovery
+- **Logging Integration**: Automatic integration with centralized logging
+
+```cpp
+// Example component using the framework
+class MyComponent : public digitoys::core::ComponentBase {
+public:
+    MyComponent() : ComponentBase("MyComponent") {
+        DIGITOYS_REGISTER_COMPONENT("MyComponent", "MY_TAG");
+    }
+    
+    esp_err_t initialize() override {
+        DIGITOYS_LOGI("MyComponent", "Initializing component");
+        // Component-specific initialization
+        return ESP_OK;
+    }
+};
+```
 
 ## 🔍 Component Detail Links
 
 For detailed documentation of each component:
 
+### Core Components
 - 📡 **[LiDAR Driver](./lidar-driver.md)** - Sensor interface and data processing
 - 🎛️ **[Control Task](./control-task.md)** - Main control logic and safety algorithms  
 - 🔄 **[ADAS PWM Driver](./adas-pwm-driver.md)** - PWM signal capture and generation
 - 📊 **[Monitor](./monitor.md)** - System telemetry and web dashboard
+
+### Infrastructure & Framework
+- 📋 **[Centralized Logging System](./centralized-logging.md)** - Production-ready logging with simplified API ⭐ **New**
+
+### Architecture Documentation
 - 🏗️ **[FreeRTOS Task Architecture](./freertos-task-architecture.md)** - Task-level system design
 - 🔧 **[Component Details](./component-details.md)** - Individual component summaries
 
@@ -252,8 +353,8 @@ For detailed documentation of each component:
 
 ### Resource Utilization
 - **CPU Usage**: ~25% under normal operation
-- **Memory Usage**: ~180KB total RAM utilization
-- **Flash Usage**: ~1.2MB application code
+- **Memory Usage**: ~185KB total RAM utilization (includes centralized logging)
+- **Flash Usage**: ~1.25MB application code (includes digitoys-core infrastructure)
 - **Network**: WiFi for monitoring dashboard
 
 ### Environmental Requirements
@@ -264,4 +365,4 @@ For detailed documentation of each component:
 
 ---
 
-This architecture provides a robust, safety-critical control system suitable for autonomous emergency braking in RC vehicles, with comprehensive monitoring and debugging capabilities.
+This architecture provides a robust, safety-critical control system suitable for autonomous emergency braking in RC vehicles, with comprehensive monitoring and debugging capabilities. The **digitoys-core infrastructure** provides a solid foundation with centralized logging, component lifecycle management, and configuration validation that makes the system maintainable and debuggable in production environments.

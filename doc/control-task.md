@@ -50,12 +50,23 @@ This component is the **heart of the DigiToys firmware**, implementing the main 
 
 ```mermaid
 classDiagram
+    class ComponentBase {
+        <<digitoys::core>>
+        +initialize() esp_err_t
+        +start() esp_err_t
+        +stop() esp_err_t
+        +shutdown() esp_err_t
+        +getState() ComponentState
+        +getName() const char*
+    }
+
     class ControlTask {
         -ControlContext* ctx_
         -ControlState state_
         -ObstacleDetector obstacle_detector_
         -RCInputProcessor rc_processor_
         -SpeedController speed_controller_
+        -TaskHandle_t task_handle_
         +ControlTask(ControlContext* ctx)
         +run() void
         -processFrame() void
@@ -100,19 +111,32 @@ classDiagram
     }
 
     class ControlContext {
-        +lidar::LiDAR* lidar
-        +adas::PwmDriver* pwm_driver
-        +monitor::Monitor* monitor
+        +LiDAR* lidar
+        +PwmDriver* pwm_driver
+        +Monitor* monitor
     }
 
+    class LiDAR {
+        <<lidar::LiDAR>>
+    }
+
+    class PwmDriver {
+        <<adas::PwmDriver>>
+    }
+
+    class Monitor {
+        <<monitor::Monitor>>
+    }
+
+    ComponentBase <|-- ControlTask
     ControlTask --> ControlState
     ControlTask --> ObstacleDetector
     ControlTask --> RCInputProcessor
     ControlTask --> SpeedController
     ControlTask --> ControlContext
-    ControlContext --> "lidar::LiDAR"
-    ControlContext --> "adas::PwmDriver"
-    ControlContext --> "monitor::Monitor"
+    ControlContext --> LiDAR
+    ControlContext --> PwmDriver
+    ControlContext --> Monitor
 ```
 
 ## Control Flow State Machine
@@ -154,7 +178,7 @@ stateDiagram-v2
 ### `ControlTask::ControlTask(ControlContext* ctx)`
 
 **Description:**  
-Constructs the main control task with hardware interface context.
+Constructs the main control task with hardware interface context. Inherits from `ComponentBase` for standardized lifecycle management and registers with the centralized logging system.
 
 **Parameters:**  
 - `ControlContext* ctx`: Pointer to hardware interfaces (LiDAR, PWM driver, monitor)
@@ -164,6 +188,46 @@ Constructs the main control task with hardware interface context.
 static control::ControlContext ctx = {&lidar, &pwm_driver, &monitor};
 static control::ControlTask control_task(&ctx);
 ```
+
+---
+
+### `ControlTask::initialize()`
+
+**Description:**  
+Initializes the control task component (ComponentBase interface). Validates the control context and sets component state to INITIALIZED.
+
+**Returns:**  
+- `ESP_OK` on success, error code on validation failure
+
+---
+
+### `ControlTask::start()`
+
+**Description:**  
+Starts the control task as a FreeRTOS task and sets component state to RUNNING.
+
+**Returns:**  
+- `ESP_OK` on success, error code on task creation failure
+
+---
+
+### `ControlTask::stop()`
+
+**Description:**  
+Stops the control task and sets component state to STOPPED.
+
+**Returns:**  
+- `ESP_OK` on success, error code otherwise
+
+---
+
+### `ControlTask::shutdown()`
+
+**Description:**  
+Completely shuts down the control task and sets component state to UNINITIALIZED.
+
+**Returns:**  
+- `ESP_OK` on success, error code otherwise
 
 ---
 
@@ -373,23 +437,33 @@ extern "C" void ControlTaskWrapper(void *pv) {
 ## Usage Example
 
 ```cpp
-// Initialize hardware interfaces
+// Initialize hardware interfaces with ComponentBase lifecycle
 LiDAR lidar{lidar_config};
+ESP_ERROR_CHECK(lidar.initialize());
+ESP_ERROR_CHECK(lidar.start());
+
 PwmDriver pwm_driver{pwm_configs};
+ESP_ERROR_CHECK(pwm_driver.initialize());
+ESP_ERROR_CHECK(pwm_driver.start());
+
 Monitor monitor;
+ESP_ERROR_CHECK(monitor.initialize());
+ESP_ERROR_CHECK(monitor.start());
 
 // Create control context
 ControlContext ctx = {&lidar, &pwm_driver, &monitor};
 
-// Create and start control task
+// Create and initialize control task
 ControlTask control_task(&ctx);
-xTaskCreate(ControlTaskWrapper, "ControlTask", 8192, 
-           &control_task, tskIDLE_PRIORITY + 2, nullptr);
+ESP_ERROR_CHECK(control_task.initialize());
+ESP_ERROR_CHECK(control_task.start());
 ```
 
 The control task will automatically:
 1. Read LiDAR obstacle data every 50ms
 2. Process RC input and determine vehicle state
 3. Apply appropriate control actions based on safety logic
+4. Update telemetry for monitoring dashboard
+5. Log diagnostic information using centralized logging
 4. Update telemetry for monitoring dashboard
 5. Log diagnostic information for debugging

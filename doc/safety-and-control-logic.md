@@ -214,7 +214,7 @@ void handleWarningState() {
     updateTelemetryWarning(true, obstacle_distance);
     
     // Log warning condition
-    ESP_LOGW(TAG, "Warning: Obstacle at %.2fm, speed factor %.2f", 
+    DIGITOYS_LOGW("ControlTask", "Warning: Obstacle at %.2fm, speed factor %.2f", 
              obstacle_distance, current_speed_factor);
     
     // Continue RC passthrough with monitoring
@@ -246,7 +246,7 @@ void executeEmergencyBrake(PwmDriver& driver) {
     driver.setDuty(0, ControlConstants::BRAKE);
     
     // Log emergency action
-    ESP_LOGE(TAG, "EMERGENCY BRAKE APPLIED");
+    DIGITOYS_LOGE("ControlTask", "EMERGENCY BRAKE APPLIED");
 }
 ```
 
@@ -284,14 +284,14 @@ SpeedController::Action handleBrakeRelease(ControlState& state, float current_di
 bool RCInputProcessor::validateRCInput(float duty_cycle) {
     // Check for valid PWM range (typical RC: 1000-2000μs = 5-10% duty)
     if (duty_cycle < MIN_VALID_DUTY || duty_cycle > MAX_VALID_DUTY) {
-        ESP_LOGW(TAG, "RC input out of range: %.3f", duty_cycle);
+        DIGITOYS_LOGW("ControlTask", "RC input out of range: %.3f", duty_cycle);
         return false;
     }
     
     // Check for signal timeout
     uint32_t current_time = esp_timer_get_time() / 1000;
     if (current_time - last_valid_input_time_ > RC_TIMEOUT_MS) {
-        ESP_LOGW(TAG, "RC input timeout: %lums", current_time - last_valid_input_time_);
+        DIGITOYS_LOGW("ControlTask", "RC input timeout: %lums", current_time - last_valid_input_time_);
         return false;
     }
     
@@ -322,19 +322,19 @@ float RCInputProcessor::conditionRCInput(float raw_duty) {
 bool LiDAR::validateObstacleData(const ObstacleInfo& info) {
     // Check for infinite or NaN distances
     if (!std::isfinite(info.distance)) {
-        ESP_LOGD(TAG, "Invalid distance reading: %.2f", info.distance);
+        DIGITOYS_LOGD("LiDAR", "Invalid distance reading: %.2f", info.distance);
         return false;
     }
     
     // Check for reasonable distance range
     if (info.distance < MIN_SENSOR_RANGE || info.distance > MAX_SENSOR_RANGE) {
-        ESP_LOGD(TAG, "Distance out of sensor range: %.2fm", info.distance);
+        DIGITOYS_LOGD("LiDAR", "Distance out of sensor range: %.2fm", info.distance);
         return false;
     }
     
     // Check confidence level
     if (info.confidence < MIN_CONFIDENCE_THRESHOLD) {
-        ESP_LOGD(TAG, "Low confidence reading: %d", info.confidence);
+        DIGITOYS_LOGD("LiDAR", "Low confidence reading: %d", info.confidence);
         return false;
     }
     
@@ -399,12 +399,12 @@ ControlAction handleSensorFailure(SensorType failed_sensor) {
     switch (failed_sensor) {
         case SensorType::LIDAR:
             // Continue with last known safe distance
-            ESP_LOGW(TAG, "LiDAR failed - using last known distance");
+            DIGITOYS_LOGW("ControlTask", "LiDAR failed - using last known distance");
             return ControlAction::MAINTAIN_LAST_SAFE_STATE;
             
         case SensorType::RC_INPUT:
             // Immediate stop for safety
-            ESP_LOGE(TAG, "RC input failed - emergency stop");
+            DIGITOYS_LOGE("ControlTask", "RC input failed - emergency stop");
             return ControlAction::EMERGENCY_STOP;
             
         default:

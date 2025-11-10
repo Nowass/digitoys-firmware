@@ -4,6 +4,7 @@
 #include "uart-hal.hpp"
 #include "motor-hal.hpp"
 #include "frame-parser.hpp"
+#include <ComponentBase.hpp>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <esp_err.h>
@@ -20,14 +21,17 @@ namespace lidar
         float distance = std::numeric_limits<float>::infinity();
     };
 
-    class LiDAR
+    class LiDAR : public digitoys::core::ComponentBase
     {
     public:
         explicit LiDAR(const LiDARConfig &cfg);
         ~LiDAR();
 
-        esp_err_t initialize();
-        void shutdown();
+        // IComponent interface
+        esp_err_t initialize() override;
+        esp_err_t start() override;
+        esp_err_t stop() override;
+        esp_err_t shutdown() override;
 
         ObstacleInfo getObstacleInfo() const;
 

@@ -1,28 +1,115 @@
 #include "ControlTask.hpp"
-#include <esp_log.h>
+#include <Constants.hpp>
+#include <Logger.hpp>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
-
-static const char *TAG = "CONTROL_TASK";
 
 namespace control
 {
 
     ControlTask::ControlTask(ControlContext *ctx)
-        : ctx_(ctx)
+        : ComponentBase("ControlTask"), ctx_(ctx)
     {
-        // Constructor - all members are initialized with default constructors
+        // Register with centralized logging system
+        DIGITOYS_REGISTER_COMPONENT("ControlTask", "CONTROL");
+    }
+
+    esp_err_t ControlTask::initialize()
+    {
+        if (getState() != digitoys::core::ComponentState::UNINITIALIZED)
+        {
+            DIGITOYS_LOGW("ControlTask", "Component already initialized");
+            return ESP_ERR_INVALID_STATE;
+        }
+
+        // Validate context
+        if (!ctx_ || !ctx_->lidar || !ctx_->pwm_driver || !ctx_->monitor)
+        {
+            DIGITOYS_LOGE("ControlTask", "Invalid control context - null pointers");
+            setState(digitoys::core::ComponentState::ERROR);
+            return ESP_ERR_INVALID_ARG;
+        }
+
+        setState(digitoys::core::ComponentState::INITIALIZED);
+        DIGITOYS_LOGI("ControlTask", "Control task component initialized successfully");
+        return ESP_OK;
+    }
+
+    esp_err_t ControlTask::start()
+    {
+        if (getState() != digitoys::core::ComponentState::INITIALIZED)
+        {
+            DIGITOYS_LOGW("ControlTask", "Component not initialized or already running");
+            return ESP_ERR_INVALID_STATE;
+        }
+
+        BaseType_t rc = xTaskCreate(
+            [](void *arg)
+            { static_cast<ControlTask *>(arg)->run(); },
+            "ControlTask",
+            digitoys::constants::control_task::TASK_STACK_SIZE,
+            this,
+            digitoys::constants::control_task::TASK_PRIORITY,
+            &task_handle_);
+
+        if (rc != pdPASS)
+        {
+            DIGITOYS_LOGE("ControlTask", "Failed to create control task");
+            setState(digitoys::core::ComponentState::ERROR);
+            return ESP_FAIL;
+        }
+
+        setState(digitoys::core::ComponentState::RUNNING);
+        DIGITOYS_LOGI("ControlTask", "Control task component started successfully");
+        return ESP_OK;
+    }
+
+    esp_err_t ControlTask::stop()
+    {
+        if (getState() != digitoys::core::ComponentState::RUNNING)
+        {
+            DIGITOYS_LOGW("ControlTask", "Component not running");
+            return ESP_ERR_INVALID_STATE;
+        }
+
+        if (task_handle_)
+        {
+            vTaskDelete(task_handle_);
+            task_handle_ = nullptr;
+        }
+
+        setState(digitoys::core::ComponentState::STOPPED);
+        DIGITOYS_LOGI("ControlTask", "Control task component stopped");
+        return ESP_OK;
+    }
+
+    esp_err_t ControlTask::shutdown()
+    {
+        if (getState() == digitoys::core::ComponentState::RUNNING)
+        {
+            stop();
+        }
+
+        if (task_handle_)
+        {
+            vTaskDelete(task_handle_);
+            task_handle_ = nullptr;
+        }
+
+        setState(digitoys::core::ComponentState::UNINITIALIZED);
+        DIGITOYS_LOGI("ControlTask", "Control task component shutdown complete");
+        return ESP_OK;
     }
 
     void ControlTask::run()
     {
-        ESP_LOGI(TAG, "Control task started");
+        DIGITOYS_LOGI("ControlTask", "Control task started");
 
         while (true)
         {
             processFrame();
-            vTaskDelay(pdMS_TO_TICKS(ControlConstants::CONTROL_LOOP_DELAY_MS));
+            vTaskDelay(pdMS_TO_TICKS(digitoys::constants::timing::CONTROL_LOOP_DELAY_MS));
         }
     }
 
@@ -99,10 +186,10 @@ namespace control
         rc_processor_.logDiagnostics(rc_status, state_.getDutyTestLogCounter());
 
         // Debug log dynamic thresholds (every 2 seconds) when driving forward
-        if (rc_status.driving_forward && ++state_.getThresholdLogCounter() >= ControlConstants::THRESHOLD_LOG_INTERVAL)
+        if (rc_status.driving_forward && ++state_.getThresholdLogCounter() >= digitoys::constants::control_task::THRESHOLD_LOG_INTERVAL)
         {
             state_.getThresholdLogCounter() = 0;
-            ESP_LOGI(TAG, "Speed: %.4f, BrakeDist: %.2fm, WarnDist: %.2fm, ActualDist: %.2fm",
+            DIGITOYS_LOGI("ControlTask", "Speed: %.4f, BrakeDist: %.2fm, WarnDist: %.2fm, ActualDist: %.2fm",
                      rc_status.current_input, dynamic_brake_distance, dynamic_warning_distance, distance);
         }
     }
